@@ -1,7 +1,9 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query } from '@nestjs/common';
 import { MatchesService } from './matches.service';
+import { MatchTimeService } from './match-time.service';
 import { CreateMatchDto } from './dto/create-match.dto';
 import { UpdateMatchDto, UpdateAllianceDto } from './dto/update-match.dto';
+import { UpdateMatchTimeDto, BulkUpdateMatchTimesDto } from './dto/update-match-time.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -9,7 +11,10 @@ import { UserRole, MatchState } from '../utils/prisma-types';
 
 @Controller('matches')
 export class MatchesController {
-  constructor(private readonly matchesService: MatchesService) {}
+  constructor(
+    private readonly matchesService: MatchesService,
+    private readonly matchTimeService: MatchTimeService
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -59,5 +64,25 @@ export class MatchesController {
   @Roles(UserRole.ADMIN)
   remove(@Param('id') id: string) {
     return this.matchesService.remove(id);
+  }
+
+  // New time management endpoints
+  @Patch(':id/time')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  updateMatchTime(@Param('id') id: string, @Body() updateMatchTimeDto: UpdateMatchTimeDto) {
+    return this.matchTimeService.updateMatchTime(id, updateMatchTimeDto);
+  }
+
+  @Post('bulk-update-times')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  bulkUpdateMatchTimes(@Body() bulkUpdateDto: BulkUpdateMatchTimesDto) {
+    return this.matchTimeService.bulkUpdateMatchTimes(bulkUpdateDto);
+  }
+
+  @Get('stage/:stageId/schedule')
+  getStageSchedule(@Param('stageId') stageId: string) {
+    return this.matchTimeService.getStageSchedule(stageId);
   }
 }

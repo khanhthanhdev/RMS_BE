@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma.service';
 import { CreateTeamDto, CreateTeamMemberDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { ImportTeamsDto } from './dto/import-teams.dto';
+import { CreateBulkTeamsDto } from './dto/create-bulk-teams.dto';
 import { DateValidationService } from '../common/services/date-validation.service';
 import { Gender, TeamMember } from '../../generated/prisma';
 import { Prisma } from '../../generated/prisma';
@@ -150,7 +151,13 @@ export class TeamsService {
         name: true,
         startDate: true,
         endDate: true,
-        registrationDeadline: true
+        registrationDeadline: true,
+        maxTeams: true,
+        _count: {
+          select: {
+            teams: true
+          }
+        }
       }
     });
 
@@ -177,6 +184,13 @@ export class TeamsService {
     if (tournament.registrationDeadline && registrationDate > tournament.registrationDeadline) {
       throw new BadRequestException(
         `Registration deadline has passed (${tournament.registrationDeadline.toLocaleDateString()})`
+      );
+    }
+
+    // Check maximum teams limit if set
+    if (tournament.maxTeams && tournament._count.teams >= tournament.maxTeams) {
+      throw new BadRequestException(
+        `Tournament has reached its maximum limit of ${tournament.maxTeams} teams. No new teams can be registered.`
       );
     }
 
@@ -229,6 +243,13 @@ export class TeamsService {
       where,
       include: {
         tournament: true,
+        user: {
+          select: {
+            id: true,
+            username: true,
+            email: true,
+          },
+        },
         teamMembers: true,
         _count: {
           select: { teamMembers: true },
@@ -462,4 +483,148 @@ export class TeamsService {
       throw new BadRequestException(`Failed to import teams: ${error.message}`);
     }
   }*/
+
+  /**
+   * Create multiple teams with random data for testing purposes (ADMIN only)
+   */
+  async createBulkTeams(createBulkTeamsDto: CreateBulkTeamsDto) {
+    const { tournamentId, numberOfTeams } = createBulkTeamsDto;
+
+    // Verify tournament exists
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      select: { id: true, name: true },
+    });
+
+    if (!tournament) {
+      throw new NotFoundException(`Tournament with ID ${tournamentId} not found`);
+    }
+
+    // Random data generators
+    const teamNamePrefixes = [
+      'Robotics Warriors', 'Tech Titans', 'Code Crushers', 'Gear Guardians', 
+      'Circuit Breakers', 'Bolt Builders', 'Cyber Samurais', 'Digital Dynamos',
+      'Electric Eagles', 'Fusion Force', 'Galaxy Gears', 'Heavy Metal',
+      'Iron Lions', 'Java Jaguars', 'Kinetic Knights', 'Logic Legends',
+      'Mech Masters', 'Nano Knights', 'Omega Operators', 'Power Pumas',
+      'Quantum Quests', 'Robo Raptors', 'Steel Spartans', 'Tech Tigers',
+      'Ultra Units', 'Vector Vipers', 'Wire Wolves', 'X-Force',
+      'Yield Yaks', 'Zero Zone'
+    ];
+
+    const provinces = [
+      'Hà Nội', 'Hồ Chí Minh', 'Hải Phòng', 'Đà Nẵng', 'Cần Thơ',
+      'An Giang', 'Bà Rịa - Vũng Tàu', 'Bắc Giang', 'Bắc Kạn', 'Bạc Liêu',
+      'Bắc Ninh', 'Bến Tre', 'Bình Định', 'Bình Dương', 'Bình Phước',
+      'Bình Thuận', 'Cà Mau', 'Cao Bằng', 'Đắk Lắk', 'Đắk Nông'
+    ];
+
+    const wards = [
+      'Phường 1', 'Phường 2', 'Phường 3', 'Phường Trung Tâm',
+      'Phường Đông', 'Phường Tây', 'Phường Nam', 'Phường Bắc',
+      'Xã Hòa Bình', 'Xã Thành Công', 'Xã Đại Thành', 'Xã Hưng Thịnh'
+    ];
+
+    const organizations = [
+      'THPT Chu Văn An', 'THPT Lê Quý Đôn', 'THPT Nguyễn Huệ',
+      'Trường THCS Trần Phú', 'THPT Chuyên Lê Hồng Phong',
+      'Đại học Bách Khoa', 'Đại học Công Nghệ', 'CLB Robotics',
+      'Trung tâm STEM', 'Maker Space', 'Innovation Hub'
+    ];
+
+    const referralSources = [
+      'Social Media', 'Website', 'Friends', 'School', 'Advertisement',
+      'Event', 'Competition', 'Workshop', 'Teacher Recommendation'
+    ];
+
+    const firstNames = [
+      'Minh', 'Hương', 'Tuấn', 'Linh', 'Đức', 'Mai', 'Hùng', 'Thảo',
+      'Quang', 'Nhung', 'Bình', 'Lan', 'Việt', 'Thu', 'Nam', 'Hà',
+      'Khôi', 'Trang', 'Phong', 'Ngọc', 'Hoàng', 'Yến', 'Trung', 'Hoa'
+    ];
+
+    const lastNames = [
+      'Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ',
+      'Võ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ', 'Ngô', 'Dương', 'Lý'
+    ];
+
+    const createdTeams: any[] = [];
+
+    try {
+      // Get an admin user to assign as team owner
+      const adminUser = await this.prisma.user.findFirst({ 
+        where: { role: 'ADMIN' } 
+      });
+
+      if (!adminUser) {
+        throw new BadRequestException('No admin user found to assign as team owner');
+      }
+
+      for (let i = 0; i < numberOfTeams; i++) {
+        // Generate random team data
+        const teamName = `${teamNamePrefixes[Math.floor(Math.random() * teamNamePrefixes.length)]} ${Math.floor(Math.random() * 1000)}`;
+        const teamNumber = await this.generateNextTeamNumber(tournamentId);
+        const referralSource = referralSources[Math.floor(Math.random() * referralSources.length)];
+
+        // Generate random team members (2-4 members per team)
+        const memberCount = Math.floor(Math.random() * 3) + 2; // 2-4 members
+        const teamMembers: any[] = [];
+
+        for (let j = 0; j < memberCount; j++) {
+          const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
+          const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
+          const fullName = `${lastName} ${firstName}`;
+          const province = provinces[Math.floor(Math.random() * provinces.length)];
+          const ward = wards[Math.floor(Math.random() * wards.length)];
+          const organization = organizations[Math.floor(Math.random() * organizations.length)];
+          const gender = Math.random() > 0.5 ? 'MALE' : 'FEMALE';
+
+          teamMembers.push({
+            name: fullName,
+            gender: gender as Gender,
+            phoneNumber: `09${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`,
+            email: `${firstName.toLowerCase()}${lastName.toLowerCase()}${Math.floor(Math.random() * 1000)}@email.com`,
+            province: province,
+            ward: ward,
+            organization: organization,
+            organizationAddress: `${Math.floor(Math.random() * 999) + 1} Đường ${Math.floor(Math.random() * 50) + 1}, ${ward}, ${province}`,
+          });
+        }
+
+        // Create team with members
+        const team = await this.prisma.team.create({
+          data: {
+            teamNumber,
+            name: teamName,
+            tournamentId,
+            userId: adminUser.id,
+            referralSource,
+            teamMembers: {
+              create: teamMembers,
+            },
+          },
+          include: {
+            teamMembers: true,
+            tournament: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        });
+
+        createdTeams.push(team);
+      }
+
+      return {
+        success: true,
+        message: `Successfully created ${numberOfTeams} teams for tournament ${tournament.name}`,
+        teams: createdTeams,
+        count: createdTeams.length,
+      };
+    } catch (error) {
+      throw new BadRequestException(`Failed to create bulk teams: ${error.message}`);
+    }
+  }
 }

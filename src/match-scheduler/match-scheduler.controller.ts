@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '../utils/prisma-types';
+import { FrcSchedulerConfig, PRESET_CONFIGS } from './frc-scheduler.config';
 
 /**
  * Controller for match scheduling operations.
@@ -22,11 +23,13 @@ export class MatchSchedulerController {
     @Roles(UserRole.ADMIN)
     async generateFrcSchedule(@Body() data: { 
         stageId: string;
-        rounds: number;
+        rounds?: number;
         teamsPerAlliance?: number;
         minMatchSeparation?: number;
         maxIterations?: number;
         qualityLevel?: 'low' | 'medium' | 'high';
+        config?: Partial<FrcSchedulerConfig>;
+        preset?: keyof typeof PRESET_CONFIGS;
     }) {
         const schedule = await this.matchSchedulerService.generateFrcSchedule(
             data.stageId,
@@ -34,7 +37,9 @@ export class MatchSchedulerController {
             data.teamsPerAlliance || 2,
             data.minMatchSeparation || 1,
             data.maxIterations,
-            data.qualityLevel || 'medium'
+            data.qualityLevel || 'medium',
+            data.config,
+            data.preset
         );
         
         // Use stageId since stage object isn't available in the returned data
@@ -47,15 +52,55 @@ export class MatchSchedulerController {
     }
 
     /**
+     * Generates a schedule using custom FRC configuration.
+     * Allows full control over all MatchMaker algorithm parameters.
+     */
+    @Post('generate-frc-schedule-advanced')
+    @Roles(UserRole.ADMIN)
+    async generateFrcScheduleAdvanced(@Body() data: { 
+        stageId: string;
+        config: FrcSchedulerConfig;
+    }) {
+        const schedule = await this.matchSchedulerService.generateFrcScheduleWithConfig(
+            data.stageId,
+            data.config
+        );
+        
+        return {
+            message: `Successfully created ${schedule.length} matches for stage ${data.stageId} with custom configuration`,
+            matches: schedule,
+            config: data.config
+        };
+    }
+
+    /**
+     * Get available preset configurations for FRC scheduling.
+     */
+    @Post('get-frc-presets')
+    @Roles(UserRole.ADMIN)
+    async getFrcPresets() {
+        return {
+            message: 'Available FRC scheduler presets',
+            presets: Object.keys(PRESET_CONFIGS),
+            configurations: PRESET_CONFIGS
+        };
+    }
+
+    /**
      * Generates a new round for a Swiss-style tournament.
      * Pairs teams based on their current performance.
      */
     @Post('generate-swiss-round')
     @Roles(UserRole.ADMIN)
-    async generateSwissRound(@Body() data: { stageId: string; currentRoundNumber: number }) {
+    async generateSwissRound(@Body() data: { 
+        stageId: string; 
+        currentRoundNumber: number;
+        teamsPerAlliance?: number;
+    }) {
         const matches = await this.matchSchedulerService.generateSwissRound(
             data.stageId, 
-            data.currentRoundNumber
+            data.currentRoundNumber,
+            data.teamsPerAlliance || 2
         );
         
         return {
@@ -96,10 +141,15 @@ export class MatchSchedulerController {
      */
     @Post('generate-playoff')
     @Roles(UserRole.ADMIN)
-    async generatePlayoffSchedule(@Body() data: { stageId: string; numberOfRounds: number }) {
+    async generatePlayoffSchedule(@Body() data: { 
+        stageId: string; 
+        numberOfRounds: number;
+        teamsPerAlliance?: number;
+    }) {
         const matches = await this.matchSchedulerService.generatePlayoffSchedule(
             data.stageId, 
-            data.numberOfRounds
+            data.numberOfRounds,
+            data.teamsPerAlliance || 2
         );
         
         return {

@@ -11,6 +11,14 @@ export const CreateTournamentSchema = z.object({
   adminId: z.string().uuid('Admin ID must be a valid UUID'),
   numberOfFields: z.coerce.number().int().min(1).max(20).default(1),
   registrationDeadline: z.coerce.date().optional(),
+  maxTeams: z.preprocess(
+    (val) => val === '' || val === null || val === undefined ? undefined : Number(val),
+    z.number().int().positive('Max teams must be a positive integer').optional()
+  ),
+  maxTeamMembers: z.preprocess(
+    (val) => val === '' || val === null || val === undefined ? undefined : Number(val),
+    z.number().int().positive('Max team members must be a positive integer').optional()
+  ),
 }).refine(data => {
   const validation = validateHierarchicalDateRange(
     { startDate: data.startDate, endDate: data.endDate },

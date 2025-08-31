@@ -2,70 +2,135 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { Match as PrismaMatch, MatchState, AllianceColor } from '../utils/prisma-types';
 import { Match, Schedule } from './match-scheduler.types';
+import { FrcSchedulerConfig, DEFAULT_FRC_CONFIG, QUALITY_ITERATIONS, PRESET_CONFIGS } from './frc-scheduler.config';
 
 /**
  * FRC-style schedule generation and optimization logic.
  * Extracted from MatchSchedulerService for separation of concerns.
+ * Now configurable based on MatchMaker algorithm principles.
  */
 @Injectable()
 export class FrcScheduler {
-  private readonly RED_ALLIANCE_SIZE = 2;
-  private readonly BLUE_ALLIANCE_SIZE = 2;
-  private readonly TEAMS_PER_MATCH = 4;
-  private readonly STATIONS_PER_ALLIANCE = 2;
-  private readonly PARTNER_REPEAT_WEIGHT = 3.0;
-  private readonly OPPONENT_REPEAT_WEIGHT = 2.0;
-  private readonly GENERAL_REPEAT_WEIGHT = 1.0;
-  private readonly INITIAL_TEMPERATURE = 100.0;
-  private readonly COOLING_RATE = 0.95;
-  private readonly MIN_TEMPERATURE = 0.01;
-  private readonly ITERATIONS_PER_TEMPERATURE = 100;
+  // Dynamic configuration - replaces hardcoded constants
+  private config: FrcSchedulerConfig;
+  
+  // Computed values based on configuration
+  private get teamsPerMatch(): number {
+    return this.config.teamsPerAlliance * this.config.alliancesPerMatch;
+  }
+  
+  private get totalStations(): number {
+    return this.config.teamsPerAlliance * this.config.alliancesPerMatch;
+  }
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {
+    this.config = { ...DEFAULT_FRC_CONFIG };
+  }
+
+  /**
+   * Set custom configuration for the scheduler
+   */
+  setConfig(config: Partial<FrcSchedulerConfig>): void {
+    this.config = { ...DEFAULT_FRC_CONFIG, ...config };
+  }
+
+  /**
+   * Load a preset configuration
+   */
+  loadPreset(preset: keyof typeof PRESET_CONFIGS): void {
+    this.config = { ...PRESET_CONFIGS[preset] };
+  }
+
+  /**
+   * Get current configuration
+   */
+  getConfig(): FrcSchedulerConfig {
+    return { ...this.config };
+  }
+
+  /**
+   * Get iterations based on quality level
+   */
+  private getIterationsForQuality(): number {
+    if (this.config.qualityLevel === 'custom') {
+      return this.config.customIterations || QUALITY_ITERATIONS.good;
+    }
+    return QUALITY_ITERATIONS[this.config.qualityLevel];
+  }
 
   async generateFrcSchedule(
     stage: any,
-    rounds: number,
-    minMatchSeparation: number = 1,
+    rounds?: number,
+    minMatchSeparation?: number,
     maxIterations?: number,
-    qualityLevel: 'low' | 'medium' | 'high' = 'medium'
+    qualityLevel?: 'low' | 'medium' | 'high'
   ): Promise<PrismaMatch[]> {
+    // Override config with provided parameters
+    if (rounds !== undefined) {
+      this.config.rounds.count = rounds;
+    }
+    if (minMatchSeparation !== undefined) {
+      this.config.constraints.minMatchSeparation = minMatchSeparation;
+    }
+    if (qualityLevel !== undefined) {
+      // Map old quality levels to new ones
+      const qualityMap = { low: 'fair', medium: 'good', high: 'best' } as const;
+      this.config.qualityLevel = qualityMap[qualityLevel] as any;
+    }
+
     const teams = stage.tournament.teams;
     const numTeams = teams.length;
     const fields = stage.tournament.fields;
+    
     if (!fields || fields.length === 0) {
       throw new Error('No fields found for this tournament.');
     }
+    
     const shuffledFields = [...fields].sort(() => Math.random() - 0.5);
     const fieldAssignmentCounts = new Array(shuffledFields.length).fill(0);
-    if (numTeams < this.TEAMS_PER_MATCH) {
-      throw new Error(`Not enough teams (${numTeams}) to create a schedule. Minimum required: ${this.TEAMS_PER_MATCH}`);
+    
+    if (numTeams < this.teamsPerMatch) {
+      throw new Error(`Not enough teams (${numTeams}) to create a schedule. Minimum required: ${this.teamsPerMatch}`);
     }
+    
     const teamIdMap = new Map<number, string>();
     teams.forEach((team, idx) => {
       const numId = idx + 1;
       teamIdMap.set(numId, team.id);
     });
-    const iterationsMap = { low: 5000, medium: 10000, high: 25000 };
-    const iterations = maxIterations || iterationsMap[qualityLevel];
-    let schedule = this.generateInitialSchedule(numTeams, rounds);
-    schedule = this.optimizeSchedule(schedule, iterations, minMatchSeparation);
+    
+    // Determine iterations based on quality level
+    const iterations = maxIterations || this.getIterationsForQuality();
+    
+    let schedule = this.generateInitialSchedule(numTeams, this.config.rounds.count);
+    schedule = this.optimizeSchedule(schedule, iterations, this.config.constraints.minMatchSeparation);
+    
     const createdMatches: PrismaMatch[] = [];
     let matchNumber = 1;
+    
     for (const match of schedule.matches) {
       const redTeamIds = match.redAlliance.map(id => teamIdMap.get(id));
       const blueTeamIds = match.blueAlliance.map(id => teamIdMap.get(id));
+      
       let minCount = Math.min(...fieldAssignmentCounts);
       let candidateIndexes = fieldAssignmentCounts
         .map((count, idx) => (count === minCount ? idx : -1))
-        .filter(idx => idx !== -1);      let chosenIdx = candidateIndexes[Math.floor(Math.random() * candidateIndexes.length)];
+        .filter(idx => idx !== -1);      
+      let chosenIdx = candidateIndexes[Math.floor(Math.random() * candidateIndexes.length)];
       let chosenField = shuffledFields[chosenIdx];
       fieldAssignmentCounts[chosenIdx]++;
+      // Calculate scheduled time with field-based intervals
+      const fieldNumber = chosenField.number || 1;
+      const fieldOffset = (fieldNumber - 1) * 5 * 60 * 1000; // 5 minutes between fields
+      const matchOffset = (matchNumber - 1) * 10 * 60 * 1000; // 10 minutes between matches
+      const scheduledTime = new Date(Date.now() + matchOffset + fieldOffset);
+
       const dbMatch = await this.prisma.match.create({
         data: {
           stageId: stage.id,
-          matchNumber: matchNumber++,          roundNumber: 1,
-          scheduledTime: new Date(Date.now() + ((matchNumber - 1) * 6 * 60 * 1000)),
+          matchNumber: matchNumber++,
+          roundNumber: 1,
+          scheduledTime,
           status: MatchState.PENDING,
           fieldId: chosenField.id,
           // fieldNumber removed - can access via match.field.number relationship
@@ -111,14 +176,17 @@ export class FrcScheduler {
     schedule.score = this.calculateScheduleScore(schedule, minMatchSeparation);
     let bestSchedule = this.cloneSchedule(schedule);
     let bestScore = schedule.score;
-    let temperature = this.INITIAL_TEMPERATURE;
-    for (let iteration = 0; iteration < maxIterations && temperature > this.MIN_TEMPERATURE; iteration++) {
+    let temperature = this.config.simulatedAnnealing.initialTemperature;
+    
+    for (let iteration = 0; iteration < maxIterations && temperature > this.config.simulatedAnnealing.minTemperature; iteration++) {
       if (iteration % 1000 === 0) {
         // Optionally log progress
       }
+      
       const neighbor = this.generateNeighborSchedule(schedule);
       const neighborScore = this.calculateScheduleScore(neighbor, minMatchSeparation);
       neighbor.score = neighborScore;
+      
       const acceptanceProbability = this.calculateAcceptanceProbability(schedule.score, neighborScore, temperature);
       if (acceptanceProbability > Math.random()) {
         schedule = neighbor;
@@ -127,10 +195,12 @@ export class FrcScheduler {
           bestScore = schedule.score;
         }
       }
-      if (iteration % this.ITERATIONS_PER_TEMPERATURE === 0) {
-        temperature *= this.COOLING_RATE;
+      
+      if (iteration % this.config.simulatedAnnealing.iterationsPerTemperature === 0) {
+        temperature *= this.config.simulatedAnnealing.coolingRate;
       }
     }
+    
     return bestSchedule;
   }
 
@@ -144,21 +214,28 @@ export class FrcScheduler {
   private generateNeighborSchedule(schedule: Schedule): Schedule {
     const newSchedule = this.cloneSchedule(schedule);
     const matches = newSchedule.matches;
+    
     if (matches.length >= 2) {
       const match1Index = Math.floor(Math.random() * matches.length);
       let match2Index = Math.floor(Math.random() * (matches.length - 1));
       if (match2Index >= match1Index) match2Index++;
+      
       const match1 = matches[match1Index];
       const match2 = matches[match2Index];
+      
       const alliance1 = Math.random() < 0.5 ? 'redAlliance' : 'blueAlliance';
       const alliance2 = Math.random() < 0.5 ? 'redAlliance' : 'blueAlliance';
-      const pos1 = Math.floor(Math.random() * this.RED_ALLIANCE_SIZE);
-      const pos2 = Math.floor(Math.random() * this.RED_ALLIANCE_SIZE);
+      
+      const pos1 = Math.floor(Math.random() * this.config.teamsPerAlliance);
+      const pos2 = Math.floor(Math.random() * this.config.teamsPerAlliance);
+      
       const tmp = match1[alliance1][pos1];
       match1[alliance1][pos1] = match2[alliance2][pos2];
       match2[alliance2][pos2] = tmp;
+      
       this.recalculateTeamStats(newSchedule);
     }
+    
     return newSchedule;
   }
 
@@ -170,7 +247,7 @@ export class FrcScheduler {
         opponents: new Map(),
         redCount: 0,
         blueCount: 0,
-        stationAppearances: Array(this.STATIONS_PER_ALLIANCE * 2).fill(0)
+        stationAppearances: Array(this.totalStations).fill(0)
       });
     }
     for (let matchIndex = 0; matchIndex < schedule.matches.length; matchIndex++) {
@@ -213,37 +290,52 @@ export class FrcScheduler {
 
   private calculateScheduleScore(schedule: Schedule, minMatchSeparation: number): number {
     let score = 0;
+    
     for (const [, stats] of schedule.teamStats.entries()) {
+      // Partner repeat penalties
       for (const [, partnerCount] of stats.partners.entries()) {
         if (partnerCount > 1) {
-          score += this.PARTNER_REPEAT_WEIGHT * (partnerCount - 1);
+          score += this.config.penalties.partnerRepeat * (partnerCount - 1);
         }
       }
+      
+      // Opponent repeat penalties
       for (const [, opponentCount] of stats.opponents.entries()) {
         if (opponentCount > 1) {
-          score += this.OPPONENT_REPEAT_WEIGHT * (opponentCount - 1);
+          score += this.config.penalties.opponentRepeat * (opponentCount - 1);
         }
       }
+      
+      // Match separation violations
       for (let i = 0; i < stats.appearances.length - 1; i++) {
         const currentMatch = stats.appearances[i];
         const nextMatch = stats.appearances[i + 1];
         const separation = nextMatch - currentMatch;
         if (separation < minMatchSeparation) {
-          score += (minMatchSeparation - separation) * 10;
+          score += (minMatchSeparation - separation) * this.config.penalties.matchSeparationViolation;
         }
       }
+      
+      // Red/Blue alliance imbalance
       const redBlueImbalance = Math.abs(stats.redCount - stats.blueCount);
-      score += redBlueImbalance * 2;
-      const expectedAppearancesPerStation = stats.appearances.length / (this.STATIONS_PER_ALLIANCE * 2);
-      for (const stationCount of stats.stationAppearances) {
-        score += Math.abs(stationCount - expectedAppearancesPerStation) * 0.5;
+      score += redBlueImbalance * this.config.penalties.redBlueImbalance;
+      
+      // Station position imbalance
+      if (this.config.stationBalancing.enabled) {
+        const expectedAppearancesPerStation = stats.appearances.length / this.totalStations;
+        for (const stationCount of stats.stationAppearances) {
+          score += Math.abs(stationCount - expectedAppearancesPerStation) * this.config.penalties.stationImbalance;
+        }
       }
     }
+    
     return score;
   }
 
   private updateTeamStats(schedule: Schedule, match: Match, matchIndex?: number): void {
     const matchNum = matchIndex !== undefined ? matchIndex : match.matchNumber - 1;
+    
+    // Update red alliance stats
     for (let i = 0; i < match.redAlliance.length; i++) {
       const team = match.redAlliance[i];
       const teamStats = schedule.teamStats.get(team);
@@ -251,31 +343,41 @@ export class FrcScheduler {
         teamStats.appearances.push(matchNum);
         teamStats.redCount++;
         teamStats.stationAppearances[i]++;
+        
+        // Track partners
         for (let j = 0; j < match.redAlliance.length; j++) {
           if (i === j) continue;
           const partner = match.redAlliance[j];
           const currentCount = teamStats.partners.get(partner) || 0;
           teamStats.partners.set(partner, currentCount + 1);
         }
+        
+        // Track opponents
         for (const opponent of match.blueAlliance) {
           const currentCount = teamStats.opponents.get(opponent) || 0;
           teamStats.opponents.set(opponent, currentCount + 1);
         }
       }
     }
+    
+    // Update blue alliance stats
     for (let i = 0; i < match.blueAlliance.length; i++) {
       const team = match.blueAlliance[i];
       const teamStats = schedule.teamStats.get(team);
       if (teamStats) {
         teamStats.appearances.push(matchNum);
         teamStats.blueCount++;
-        teamStats.stationAppearances[i + this.STATIONS_PER_ALLIANCE]++;
+        teamStats.stationAppearances[i + this.config.teamsPerAlliance]++;
+        
+        // Track partners
         for (let j = 0; j < match.blueAlliance.length; j++) {
           if (i === j) continue;
           const partner = match.blueAlliance[j];
           const currentCount = teamStats.partners.get(partner) || 0;
           teamStats.partners.set(partner, currentCount + 1);
         }
+        
+        // Track opponents
         for (const opponent of match.redAlliance) {
           const currentCount = teamStats.opponents.get(opponent) || 0;
           teamStats.opponents.set(opponent, currentCount + 1);
@@ -286,8 +388,10 @@ export class FrcScheduler {
 
   private generateInitialSchedule(numTeams: number, rounds: number): Schedule {
     const matches: Match[] = [];
-    const totalMatches = Math.ceil((numTeams * rounds) / this.TEAMS_PER_MATCH);
+    const totalMatches = Math.ceil((numTeams * rounds) / this.teamsPerMatch);
     const teamStats = new Map();
+    
+    // Initialize team stats
     for (let i = 1; i <= numTeams; i++) {
       teamStats.set(i, {
         appearances: [],
@@ -295,32 +399,42 @@ export class FrcScheduler {
         opponents: new Map(),
         redCount: 0,
         blueCount: 0,
-        stationAppearances: Array(this.STATIONS_PER_ALLIANCE * 2).fill(0)
+        stationAppearances: Array(this.totalStations).fill(0)
       });
     }
+    
     let matchNumber = 1;
     let matchesNeeded = totalMatches;
-    if (numTeams % this.TEAMS_PER_MATCH === 0) {
+    
+    if (numTeams % this.teamsPerMatch === 0) {
+      // Even division - simple round-robin style assignment
       while (matchesNeeded > 0) {
         const match: Match = {
           matchNumber: matchNumber++,
           redAlliance: [],
           blueAlliance: []
         };
-        for (let i = 0; i < this.RED_ALLIANCE_SIZE; i++) {
-          const teamIndex = ((matchNumber - 1) * this.TEAMS_PER_MATCH + i) % numTeams;
+        
+        // Assign teams to red alliance
+        for (let i = 0; i < this.config.teamsPerAlliance; i++) {
+          const teamIndex = ((matchNumber - 1) * this.teamsPerMatch + i) % numTeams;
           match.redAlliance.push(teamIndex + 1);
         }
-        for (let i = 0; i < this.BLUE_ALLIANCE_SIZE; i++) {
-          const teamIndex = ((matchNumber - 1) * this.TEAMS_PER_MATCH + i + this.RED_ALLIANCE_SIZE) % numTeams;
+        
+        // Assign teams to blue alliance
+        for (let i = 0; i < this.config.teamsPerAlliance; i++) {
+          const teamIndex = ((matchNumber - 1) * this.teamsPerMatch + i + this.config.teamsPerAlliance) % numTeams;
           match.blueAlliance.push(teamIndex + 1);
         }
+        
         matches.push(match);
         this.updateTeamStats({ matches, score: 0, teamStats }, match, matches.length - 1);
         matchesNeeded--;
       }
     } else {
+      // Odd teams - use appearance tracking for balance (MatchMaker surrogate approach)
       const teamAppearances = Array(numTeams + 1).fill(0);
+      
       while (matchesNeeded > 0) {
         const match: Match = {
           matchNumber: matchNumber++,
@@ -328,27 +442,35 @@ export class FrcScheduler {
           blueAlliance: [],
           surrogates: []
         };
+        
+        // Sort teams by least appearances first (MatchMaker principle)
         const sortedTeams = Array.from({ length: numTeams }, (_, i) => i + 1)
           .sort((a, b) => teamAppearances[a] - teamAppearances[b]);
-        for (let i = 0; i < this.RED_ALLIANCE_SIZE; i++) {
-          if (match.redAlliance.length < this.RED_ALLIANCE_SIZE) {
+        
+        // Assign teams to red alliance
+        for (let i = 0; i < this.config.teamsPerAlliance; i++) {
+          if (match.redAlliance.length < this.config.teamsPerAlliance) {
             const team = sortedTeams[i];
             match.redAlliance.push(team);
             teamAppearances[team]++;
           }
         }
-        for (let i = 0; i < this.BLUE_ALLIANCE_SIZE; i++) {
-          if (match.blueAlliance.length < this.BLUE_ALLIANCE_SIZE) {
-            const team = sortedTeams[i + this.RED_ALLIANCE_SIZE];
+        
+        // Assign teams to blue alliance
+        for (let i = 0; i < this.config.teamsPerAlliance; i++) {
+          if (match.blueAlliance.length < this.config.teamsPerAlliance) {
+            const team = sortedTeams[i + this.config.teamsPerAlliance];
             match.blueAlliance.push(team);
             teamAppearances[team]++;
           }
         }
+        
         matches.push(match);
         this.updateTeamStats({ matches, score: 0, teamStats }, match, matches.length - 1);
         matchesNeeded--;
       }
     }
+    
     return { matches, score: 0, teamStats };
   }
 }

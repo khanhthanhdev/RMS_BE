@@ -302,6 +302,58 @@ Content-Type: application/json
 }
 ```
 
+#### Create Bulk Teams for Testing (ADMIN Only)
+```http
+POST /api/teams/bulk-create
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
+
+{
+  "tournamentId": "tournament-uuid",
+  "numberOfTeams": 10
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Successfully created 10 teams for tournament Tournament Name",
+  "teams": [
+    {
+      "id": "team-uuid",
+      "teamNumber": "TN00001",
+      "name": "Robotics Warriors 123",
+      "tournamentId": "tournament-uuid",
+      "userId": "admin-user-uuid",
+      "referralSource": "Social Media",
+      "teamMembers": [
+        {
+          "id": "member-uuid",
+          "name": "Nguyễn Minh",
+          "gender": "MALE",
+          "phoneNumber": "0912345678",
+          "email": "minhnguyen123@email.com",
+          "province": "Hà Nội",
+          "ward": "Phường 1",
+          "organization": "THPT Chu Văn An",
+          "organizationAddress": "123 Đường 1, Phường 1, Hà Nội"
+        }
+      ]
+    }
+  ],
+  "count": 10
+}
+```
+
+**Features:**
+- Creates teams with randomly generated Vietnamese names
+- Generates unique team numbers based on tournament name
+- Creates 2-4 random team members per team
+- Uses realistic Vietnamese data (names, provinces, organizations)
+- Only accessible by ADMIN users
+- Perfect for testing tournament functionality
+
 #### Update Team
 ```http
 PUT /api/teams/:id

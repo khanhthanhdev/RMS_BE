@@ -22,6 +22,7 @@ export const UpdateMatchSchema = z.object({
   status: z.nativeEnum(MatchState).optional(),
   startTime: z.coerce.date().optional(),
   endTime: z.coerce.date().optional(),
+  scheduledTime: z.coerce.date().optional(),
   fieldId: z.string().uuid('Field ID must be a valid UUID').optional(),
   scoredById: z.string().uuid('Scorer ID must be a valid UUID').optional(),
   matchType: z.nativeEnum(MatchType).optional(),
@@ -52,6 +53,17 @@ export const UpdateMatchSchema = z.object({
 }, {
   message: 'Match cannot be scheduled more than 1 year in the future',
   path: ['startTime'],
+}).refine(data => {
+  // Same validation for scheduledTime
+  if (data.scheduledTime) {
+    const oneYearFromNow = new Date();
+    oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+    return data.scheduledTime <= oneYearFromNow;
+  }
+  return true;
+}, {
+  message: 'Match cannot be scheduled more than 1 year in the future',
+  path: ['scheduledTime'],
 });
 
 // Create DTO classes from the Zod schemas

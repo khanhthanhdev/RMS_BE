@@ -220,6 +220,12 @@ export class MatchesService {
         ? updateMatchDto.endTime
         : new Date(updateMatchDto.endTime);
     }
+
+    if (updateMatchDto.scheduledTime) {
+      data.scheduledTime = updateMatchDto.scheduledTime instanceof Date
+        ? updateMatchDto.scheduledTime
+        : new Date(updateMatchDto.scheduledTime);
+    }
     
     if (updateMatchDto.scoredById) {
       data.scoredById = updateMatchDto.scoredById;

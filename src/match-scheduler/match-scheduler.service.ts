@@ -7,6 +7,7 @@ import { Match as PrismaMatch, Stage, StageType, StageStatus, MatchState, Allian
 import { SchedulingStrategyFactory } from './factories/scheduling-strategy.factory';
 import { FieldAssignmentService } from './services/field-assignment.service';
 import { MatchupHistoryService } from './services/matchup-history.service';
+import { FrcSchedulerConfig, PRESET_CONFIGS } from './frc-scheduler.config';
 import { 
   SwissSchedulingOptions, 
   FrcSchedulingOptions, 
@@ -64,34 +65,71 @@ export class MatchSchedulerService {
    */
   async generateFrcSchedule(
     stageId: string, 
-    rounds: number, 
+    rounds?: number, 
     teamsPerAlliance: number = this.DEFAULT_TEAMS_PER_ALLIANCE, 
     minMatchSeparation: number = 1,
     maxIterations?: number,
-    qualityLevel: 'low' | 'medium' | 'high' = 'medium'
+    qualityLevel: 'low' | 'medium' | 'high' = 'medium',
+    config?: Partial<FrcSchedulerConfig>,
+    preset?: keyof typeof PRESET_CONFIGS
   ): Promise<PrismaMatch[]> {
     this.logger.warn('generateFrcSchedule is deprecated. Use generateMatches with FrcSchedulingOptions instead.');
     
-    const options: FrcSchedulingOptions = {
+    // Apply preset if specified
+    if (preset) {
+      this.frcScheduler.loadPreset(preset);
+    }
+    
+    // Apply custom config if provided
+    if (config) {
+      this.frcScheduler.setConfig(config);
+    }
+    
+    // Get stage with teams and tournament details
+    const stage = await this.getStageWithDetails(stageId);
+    this.validateStageForScheduling(stage);
+    
+    return this.frcScheduler.generateFrcSchedule(
+      stage,
       rounds,
-      teamsPerAlliance,
       minMatchSeparation,
       maxIterations,
       qualityLevel
-    };
+    );
+  }
+
+  /**
+   * Generates an FRC-style schedule with full configuration control
+   */
+  async generateFrcScheduleWithConfig(
+    stageId: string,
+    config: FrcSchedulerConfig
+  ): Promise<PrismaMatch[]> {
+    this.logger.log(`Generating FRC schedule with custom configuration for stage ${stageId}`);
     
-    return this.generateMatches(stageId, options);
+    // Set the configuration
+    this.frcScheduler.setConfig(config);
+    
+    // Get stage with teams and tournament details
+    const stage = await this.getStageWithDetails(stageId);
+    this.validateStageForScheduling(stage);
+    
+    return this.frcScheduler.generateFrcSchedule(
+      stage,
+      config.rounds.count,
+      config.constraints.minMatchSeparation
+    );
   }
     /**
    * Generates a Swiss-style tournament round (Legacy method)
    * @deprecated Use generateMatches with SwissSchedulingOptions instead
    */
-  async generateSwissRound(stageId: string, currentRoundNumber: number): Promise<PrismaMatch[]> {
+  async generateSwissRound(stageId: string, currentRoundNumber: number, teamsPerAlliance: number = this.DEFAULT_TEAMS_PER_ALLIANCE): Promise<PrismaMatch[]> {
     this.logger.warn('generateSwissRound is deprecated. Use generateMatches with SwissSchedulingOptions instead.');
     
     const options: SwissSchedulingOptions = {
       currentRoundNumber,
-      teamsPerAlliance: this.DEFAULT_TEAMS_PER_ALLIANCE
+      teamsPerAlliance
     };
     
     return this.generateMatches(stageId, options);
@@ -115,11 +153,12 @@ export class MatchSchedulerService {
    * Generates a playoff tournament bracket (Legacy method)
    * @deprecated Use generateMatches with PlayoffSchedulingOptions instead
    */
-  async generatePlayoffSchedule(stageId: string, numberOfRounds: number): Promise<PrismaMatch[]> {
+  async generatePlayoffSchedule(stageId: string, numberOfRounds: number, teamsPerAlliance: number = this.DEFAULT_TEAMS_PER_ALLIANCE): Promise<PrismaMatch[]> {
     this.logger.warn('generatePlayoffSchedule is deprecated. Use generateMatches with PlayoffSchedulingOptions instead.');
     
     const options: PlayoffSchedulingOptions = {
-      numberOfRounds
+      numberOfRounds,
+      teamsPerAlliance
     };
     
     return this.generateMatches(stageId, options);

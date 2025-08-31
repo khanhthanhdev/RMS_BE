@@ -21,6 +21,8 @@ export class TournamentsService {
         endDate: new Date(createTournamentDto.endDate),
         adminId: createTournamentDto.adminId,
         numberOfFields: createTournamentDto.numberOfFields,
+        maxTeams: createTournamentDto.maxTeams,
+        maxTeamMembers: createTournamentDto.maxTeamMembers,
       },
     });
 
@@ -184,6 +186,12 @@ export class TournamentsService {
       data.numberOfFields = updateTournamentDto.numberOfFields;
       numberOfFieldsChanged = true;
       newNumberOfFields = updateTournamentDto.numberOfFields;
+    }
+    if (updateTournamentDto.maxTeams !== undefined) {
+      data.maxTeams = updateTournamentDto.maxTeams;
+    }
+    if (updateTournamentDto.maxTeamMembers !== undefined) {
+      data.maxTeamMembers = updateTournamentDto.maxTeamMembers;
     }
 
     // Update tournament first
@@ -350,5 +358,203 @@ export class TournamentsService {
       warnings: updateImpact.warnings,
       impact: updateImpact
     };
+  }
+
+  /**
+   * Export tournament data
+   */
+  async exportData(tournamentId: string, format: 'csv' | 'excel' | 'json' = 'csv') {
+    const tournament = await this.findOneWithFullDetails(tournamentId);
+    
+    if (!tournament) {
+      throw new BadRequestException('Tournament not found');
+    }
+
+    // For now, return JSON data. In a real implementation, you'd format this properly
+    const exportData = {
+      tournament: {
+        id: tournament.id,
+        name: tournament.name,
+        description: tournament.description,
+        startDate: tournament.startDate,
+        endDate: tournament.endDate,
+      },
+      teams: tournament.teams?.map(team => ({
+        id: team.id,
+        teamNumber: team.teamNumber,
+        name: team.name,
+      })) || [],
+      stages: tournament.stages?.map(stage => ({
+        id: stage.id,
+        name: stage.name,
+        type: stage.type,
+        status: stage.status,
+        startDate: stage.startDate,
+        endDate: stage.endDate,
+      })) || [],
+      fields: tournament.fields?.map(field => ({
+        id: field.id,
+        name: field.name,
+        number: field.number,
+        location: field.location,
+        referees: field.fieldReferees?.length || 0,
+      })) || [],
+    };
+
+    return exportData;
+  }
+
+  /**
+   * Get tournament settings
+   */
+  async getSettings(tournamentId: string) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        startDate: true,
+        endDate: true,
+        numberOfFields: true,
+        maxTeams: true,
+        maxTeamMembers: true,
+      },
+    });
+
+    if (!tournament) {
+      throw new BadRequestException('Tournament not found');
+    }
+
+    return tournament;
+  }
+
+  /**
+   * Update tournament settings
+   */
+  async updateSettings(tournamentId: string, settings: any) {
+    return this.prisma.tournament.update({
+      where: { id: tournamentId },
+      data: settings,
+    });
+  }
+
+  /**
+   * Get next scheduled match
+   */
+  async getNextMatch(tournamentId: string) {
+    const nextMatch = await this.prisma.match.findFirst({
+      where: {
+        stage: {
+          tournamentId: tournamentId,
+        },
+        status: 'PENDING',
+      },
+      orderBy: {
+        matchNumber: 'asc',
+      },
+      include: {
+        field: true,
+        stage: true,
+        alliances: {
+          include: {
+            teamAlliances: {
+              include: {
+                team: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return nextMatch;
+  }
+
+  /**
+   * Start a match
+   */
+  async startMatch(tournamentId: string, matchId: string) {
+    // Verify the match belongs to this tournament
+    const match = await this.prisma.match.findFirst({
+      where: {
+        id: matchId,
+        stage: {
+          tournamentId: tournamentId,
+        },
+      },
+    });
+
+    if (!match) {
+      throw new BadRequestException('Match not found in this tournament');
+    }
+
+    return this.prisma.match.update({
+      where: { id: matchId },
+      data: {
+        status: 'IN_PROGRESS',
+        startTime: new Date(),
+      },
+    });
+  }
+
+  /**
+   * Duplicate tournament
+   */
+  async duplicate(tournamentId: string, newName: string) {
+    const originalTournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      include: {
+        stages: true,
+        fields: true,
+      },
+    });
+
+    if (!originalTournament) {
+      throw new BadRequestException('Tournament not found');
+    }
+
+    // Create new tournament
+    const newTournament = await this.prisma.tournament.create({
+      data: {
+        name: newName,
+        description: originalTournament.description,
+        startDate: originalTournament.startDate,
+        endDate: originalTournament.endDate,
+        adminId: originalTournament.adminId,
+        numberOfFields: originalTournament.numberOfFields,
+        maxTeams: originalTournament.maxTeams,
+        maxTeamMembers: originalTournament.maxTeamMembers,
+      },
+    });
+
+    // Duplicate fields
+    for (const field of originalTournament.fields) {
+      await this.prisma.field.create({
+        data: {
+          name: field.name,
+          number: field.number,
+          location: field.location,
+          description: field.description,
+          tournamentId: newTournament.id,
+        },
+      });
+    }
+
+    return newTournament;
+  }
+
+  /**
+   * Create a new stage for tournament
+   */
+  async createStage(tournamentId: string, createStageDto: any) {
+    return this.prisma.stage.create({
+      data: {
+        ...createStageDto,
+        tournamentId: tournamentId,
+        startDate: new Date(createStageDto.startDate),
+        endDate: createStageDto.endDate ? new Date(createStageDto.endDate) : null,
+      },
+    });
   }
 }

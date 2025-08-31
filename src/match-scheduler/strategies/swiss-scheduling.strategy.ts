@@ -12,8 +12,7 @@ import { SwissScheduler } from '../swiss-scheduler';
  */
 @Injectable()
 export class SwissSchedulingStrategy implements ISchedulingStrategy {
-  private readonly TEAMS_PER_MATCH = 4;
-  private readonly TEAMS_PER_ALLIANCE = 2;
+  private readonly DEFAULT_TEAMS_PER_ALLIANCE = 2;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -34,10 +33,12 @@ export class SwissSchedulingStrategy implements ISchedulingStrategy {
     stage: Stage & { tournament: any; teams: Team[] },
     options: SwissSchedulingOptions
   ): Promise<Match[]> {
-    const { currentRoundNumber, teamsPerAlliance = this.TEAMS_PER_ALLIANCE } = options;
+    const { currentRoundNumber, teamsPerAlliance = this.DEFAULT_TEAMS_PER_ALLIANCE } = options;
+    const teamsPerMatch = teamsPerAlliance * 2; // 2 alliances per match
 
-    if (teamsPerAlliance !== this.TEAMS_PER_ALLIANCE) {
-      throw new Error(`Swiss strategy currently supports only ${this.TEAMS_PER_ALLIANCE} teams per alliance`);
+    // Validate that we support this alliance size
+    if (teamsPerAlliance < 1 || teamsPerAlliance > 3) {
+      throw new Error(`Swiss strategy supports 1-3 teams per alliance, got ${teamsPerAlliance}`);
     }
 
     // Validate fields
@@ -58,7 +59,9 @@ export class SwissSchedulingStrategy implements ISchedulingStrategy {
       teamStats,
       previousOpponents,
       shuffledFields,
-      fieldAssignmentCounts
+      fieldAssignmentCounts,
+      teamsPerAlliance,
+      teamsPerMatch
     );
 
     return matches;
@@ -110,7 +113,9 @@ export class SwissSchedulingStrategy implements ISchedulingStrategy {
     teamStats: any[],
     previousOpponents: Map<string, Set<string>>,
     shuffledFields: any[],
-    initialFieldCounts: number[]
+    initialFieldCounts: number[],
+    teamsPerAlliance: number,
+    teamsPerMatch: number
   ): Promise<Match[]> {
     const matches: Match[] = [];
     const paired = new Set<string>();
@@ -132,26 +137,26 @@ export class SwissSchedulingStrategy implements ISchedulingStrategy {
     console.log(`\nGenerating Swiss matches with closest performance pairing for ${sortedTeams.length} teams`);
 
     // Create matches by pairing teams with closest performance
-    for (let i = 0; i < sortedTeams.length; i += this.TEAMS_PER_MATCH) {
-      if (i + this.TEAMS_PER_MATCH > sortedTeams.length) {
+    for (let i = 0; i < sortedTeams.length; i += teamsPerMatch) {
+      if (i + teamsPerMatch > sortedTeams.length) {
         console.log(`Not enough teams for complete match, skipping remaining ${sortedTeams.length - i} teams`);
         break;
       }
-        // Get 4 teams with closest performance that haven't been paired yet
+        // Get teams with closest performance that haven't been paired yet
       const availableTeams = sortedTeams.filter(team => !paired.has(team.teamId));
       
-      if (availableTeams.length < this.TEAMS_PER_MATCH) {
+      if (availableTeams.length < teamsPerMatch) {
         console.log(`Only ${availableTeams.length} unpaired teams remaining, stopping match generation`);
         break;
       }
       
-      const matchTeams = availableTeams.slice(0, this.TEAMS_PER_MATCH);
+      const matchTeams = availableTeams.slice(0, teamsPerMatch);
       
       // Optimize alliance assignment to minimize repeat matchups
       const [redTeams, blueTeams] = this.matchupHistoryService.optimizeAllianceAssignment(
         matchTeams, 
         previousOpponents,
-        this.TEAMS_PER_ALLIANCE
+        teamsPerAlliance
       );
       
       // Mark teams as paired
@@ -205,12 +210,20 @@ export class SwissSchedulingStrategy implements ISchedulingStrategy {
     blueTeams: any[],
     field: any
   ): Promise<Match> {
+    // Calculate scheduled time based on field number and match order
+    // Default: 5-minute intervals between fields, 10-minute intervals between rounds
+    const fieldNumber = field.number || 1;
+    const baseTime = Date.now();
+    const fieldOffset = (fieldNumber - 1) * 5 * 60 * 1000; // 5 minutes per field
+    const roundOffset = (roundNumber - 1) * 10 * 60 * 1000; // 10 minutes per round
+    const scheduledTime = new Date(baseTime + fieldOffset + roundOffset);
+
     return await this.prisma.match.create({
       data: {
         stageId,
         matchNumber,
         roundNumber,
-        scheduledTime: new Date(Date.now() + ((matchNumber - 1) * 6 * 60 * 1000)), // Schedule 6 minutes apart
+        scheduledTime,
         status: MatchState.PENDING,
         fieldId: field.id,
         alliances: {

@@ -299,11 +299,26 @@ export const createHierarchicalDateSchema = (
     endDate: z.coerce.date(),
   }).refine(
     (data) => {
-      const validation = validateHierarchicalDateRange(data, options);
+      // Ensure both dates are present before validation
+      if (!data.startDate || !data.endDate) return false;
+      const validation = validateHierarchicalDateRange(
+        { startDate: data.startDate, endDate: data.endDate }, 
+        options
+      );
       return validation.isValid;
     },
     (data) => {
-      const validation = validateHierarchicalDateRange(data, options);
+      // Ensure both dates are present before validation
+      if (!data.startDate || !data.endDate) {
+        return {
+          message: 'Both start date and end date are required',
+          path: ['endDate'] as const,
+        };
+      }
+      const validation = validateHierarchicalDateRange(
+        { startDate: data.startDate, endDate: data.endDate }, 
+        options
+      );
       return {
         message: validation.errors.join('; '),
         path: ['endDate'] as const,
