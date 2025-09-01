@@ -25,6 +25,7 @@ import { RegisterDto } from './dto/register.dto';
 import { CreateUserDto } from '../users/dto';
 import { LoginDto } from './dto/login.dto';
 import { ActivateDto } from './dto/activate.dto';
+import { ResendVerificationDto } from './dto/resend-verification.dto';
 
 @Controller('auth')
 @UseGuards(ThrottlerGuard)
@@ -50,6 +51,14 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async activate(@Body() activateDto: ActivateDto): Promise<void> {
     await this.authService.verifyEmail(activateDto.token);
+  }
+
+  @Post('resend-verification')
+  @Throttle({ default: { limit: 1, ttl: 600000 } }) // 1 attempt per 10 minutes
+  @HttpCode(HttpStatus.OK)
+  async resendVerification(@Body() resendDto: ResendVerificationDto): Promise<{ message: string }> {
+    await this.authService.resendVerificationEmail(resendDto.email);
+    return { message: 'Verification email sent successfully. Please check your inbox and spam folder.' };
   }
 
   @Post('login')

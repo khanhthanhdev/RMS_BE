@@ -54,10 +54,18 @@ export class UsersService {
         select: this.getUserSelectFields(),
       });
 
+      const now = new Date();
       const activationToken = await this.jwtService.signAsync(
         { email: createUserDto.email },
-        { expiresIn: '7d' },
+        { expiresIn: '10m' },
       );
+      
+      // Update the user to set the verification email timestamp
+      await this.prisma.user.update({
+        where: { id: newUser.id },
+        data: { lastVerificationEmailSent: now },
+      });
+      
       await this.emailsService.sendAccountActivationInvite(
         createUserDto.email,
         `${process.env.FRONTEND_URL}/verify?token=${activationToken}`,

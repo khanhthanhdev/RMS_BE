@@ -2,10 +2,58 @@
 <html>
 <head>
     <title>Activate Your Account</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            line-height: 1.6; 
+            color: #333; 
+        }
+        .container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+            padding: 20px; 
+        }
+        .button { 
+            background-color: #007bff; 
+            color: white; 
+            padding: 12px 24px; 
+            text-decoration: none; 
+            border-radius: 4px; 
+            display: inline-block; 
+        }
+        .warning { 
+            background-color: #fff3cd; 
+            border: 1px solid #ffeaa7; 
+            padding: 10px; 
+            border-radius: 4px; 
+            margin: 20px 0; 
+        }
+    </style>
 </head>
 <body>
-    <p>Hello, {{email}}!</p>
-    <p>Please activate your account by clicking the link below:</p>
-    <a href="{{activationUrl}}">Activate Account</a>
+    <div class="container">
+        <h2>Welcome to RMS - Robotics Tournament Management System!</h2>
+        <p>Hello {{email}},</p>
+        <p>Thank you for registering! Please activate your account by clicking the button below:</p>
+        
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="{{activationUrl}}" class="button">Activate Your Account</a>
+        </p>
+        
+        <div class="warning">
+            <strong>Important:</strong> This verification link will expire in <strong>10 minutes</strong> for security reasons. 
+            If the link expires, you can request a new one from the login page.
+        </div>
+        
+        <p>If the button above doesn't work, you can copy and paste this link into your browser:</p>
+        <p style="word-break: break-all; color: #007bff;">{{activationUrl}}</p>
+        
+        <p>If you didn't create an account with us, please ignore this email.</p>
+        
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+        <p style="font-size: 12px; color: #666;">
+            This is an automated message from RMS. Please do not reply to this email.
+        </p>
+    </div>
 </body>
 </html>

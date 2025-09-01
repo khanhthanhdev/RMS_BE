@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma.service';
@@ -13,6 +14,7 @@ import * as bcrypt from 'bcrypt';
 import { UserRole } from '../utils/prisma-types';
 import { AuthSecurityService } from './auth-security.service';
 import { RegisterDto } from './dto/register.dto';
+import { EmailsService } from '../emails/emails.service';
 import { ActivateDto } from './dto/activate.dto';
 
 @Injectable()
@@ -24,6 +26,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly usersService: UsersService,
     private readonly authSecurityService: AuthSecurityService,
+    private readonly emailsService: EmailsService,
   ) {}
 
   async validateUser(
@@ -135,6 +138,49 @@ export class AuthService {
       where: { email: decoded.email },
       data: { emailVerified: true },
     });
+  }
+
+  async resendVerificationEmail(email: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      // Don't reveal if email exists or not for security
+      throw new BadRequestException('Email not found. Please check the email address you entered.');
+    }
+
+    if (user.emailVerified) {
+      throw new BadRequestException('Email has already been verified.');
+    }
+
+    // Check rate limiting - 10 minutes cooldown
+    const now = new Date();
+    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+    
+    // Check when the last verification email was sent
+    if (user.lastVerificationEmailSent && user.lastVerificationEmailSent > tenMinutesAgo) {
+      const remainingTime = Math.ceil((user.lastVerificationEmailSent.getTime() + 10 * 60 * 1000 - now.getTime()) / 1000 / 60);
+      throw new BadRequestException(`Please wait ${remainingTime} more minutes before requesting another verification email.`);
+    }
+
+    // Generate new activation token with 10-minute expiration
+    const activationToken = await this.jwtService.signAsync(
+      { email: user.email },
+      { expiresIn: '10m' },
+    );
+
+    // Update user record to track when email was sent
+    await this.prisma.user.update({
+      where: { email },
+      data: { lastVerificationEmailSent: now },
+    });
+
+    // Send verification email
+    await this.emailsService.sendAccountActivationInvite(
+      user.email,
+      `${process.env.FRONTEND_URL}/verify?token=${activationToken}`,
+    );
   }
 
   async createDefaultAdmin() {

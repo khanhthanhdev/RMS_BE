@@ -21,6 +21,7 @@ model User {
   isActive      Boolean        @default(true) // Account status
   lastLoginAt   DateTime? // Track last login
   emailVerified Boolean        @default(false) // Email verification
+  lastVerificationEmailSent DateTime? // Track when verification email was last sent
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   createdBy     User?          @relation("CreatedUsers", fields: [createdById], references: [id])
