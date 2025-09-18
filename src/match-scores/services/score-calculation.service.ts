@@ -1,10 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { AllianceColor } from '../../utils/prisma-types';
+import { AllianceScoreInput, LegacyAllianceScores } from '../dto/score-data.dto';
+
+export interface AllianceScoreBreakdown {
+  flagsPoints: number;
+  flagHitsPoints: number;
+  fieldControlPoints: number;
+}
 
 export interface AllianceScores {
   autoScore: number;
   driveScore: number;
   totalScore: number;
+  breakdown: AllianceScoreBreakdown;
+  input: AllianceScoreInput;
 }
 
 export interface MatchScores {
@@ -15,15 +24,38 @@ export interface MatchScores {
 
 /**
  * Service responsible for calculating match scores and determining winners
-
  */
 @Injectable()
 export class ScoreCalculationService {
+  private readonly FLAG_POINTS = 20;
+  private readonly FLAG_HIT_POINTS = 10;
+  private readonly AMMO_POINTS = 5;
+
   /**
-   * Calculates total score from auto and drive components
+   * Calculates the score breakdown for a single alliance.
    */
-  calculateTotalScore(autoScore: number, driveScore: number): number {
-    return (autoScore || 0) + (driveScore || 0);
+  calculateAllianceScore(input: AllianceScoreInput): AllianceScores {
+    this.validateAllianceInput(input);
+
+    const flagsPoints = input.flagsSecured * this.FLAG_POINTS;
+    const flagHitsPoints = input.successfulFlagHits * this.FLAG_HIT_POINTS;
+    const fieldControlPoints = input.opponentFieldAmmo * this.AMMO_POINTS;
+
+    const autoScore = flagsPoints;
+    const driveScore = flagHitsPoints + fieldControlPoints;
+    const totalScore = autoScore + driveScore;
+
+    return {
+      autoScore,
+      driveScore,
+      totalScore,
+      breakdown: {
+        flagsPoints,
+        flagHitsPoints,
+        fieldControlPoints,
+      },
+      input: { ...input },
+    };
   }
 
   /**
@@ -36,42 +68,59 @@ export class ScoreCalculationService {
   }
 
   /**
-   * Calculates all match scores and determines winner
+   * Calculates match scores for both alliances and determines the winner
    */
-  calculateMatchScores(
-    redAutoScore: number,
-    redDriveScore: number,
-    blueAutoScore: number,
-    blueDriveScore: number
-  ): MatchScores {
-    const redTotalScore = this.calculateTotalScore(redAutoScore, redDriveScore);
-    const blueTotalScore = this.calculateTotalScore(blueAutoScore, blueDriveScore);
+  calculateMatchScores(redInput: AllianceScoreInput, blueInput: AllianceScoreInput): MatchScores {
+    const redScores = this.calculateAllianceScore(redInput);
+    const blueScores = this.calculateAllianceScore(blueInput);
 
     return {
-      redScores: {
-        autoScore: redAutoScore || 0,
-        driveScore: redDriveScore || 0,
-        totalScore: redTotalScore,
-      },
-      blueScores: {
-        autoScore: blueAutoScore || 0,
-        driveScore: blueDriveScore || 0,
-        totalScore: blueTotalScore,
-      },
-      winningAlliance: this.determineWinner(redTotalScore, blueTotalScore),
+      redScores,
+      blueScores,
+      winningAlliance: this.determineWinner(redScores.totalScore, blueScores.totalScore),
     };
   }
 
-  /**
-   * Validates score inputs
-   */
-  validateScores(scores: { [key: string]: number }): void {
-    const invalidScores = Object.entries(scores).filter(
-      ([key, value]) => value < 0 || !Number.isInteger(value)
-    );
+  buildLegacyMatchScores(
+    legacyScores: LegacyAllianceScores,
+    redInput: AllianceScoreInput,
+    blueInput: AllianceScoreInput,
+  ): MatchScores {
+    const redScores: AllianceScores = {
+      autoScore: legacyScores.redAutoScore,
+      driveScore: legacyScores.redDriveScore,
+      totalScore: legacyScores.redTotalScore,
+      breakdown: {
+        flagsPoints: legacyScores.redAutoScore,
+        flagHitsPoints: legacyScores.redDriveScore,
+        fieldControlPoints: 0,
+      },
+      input: { ...redInput },
+    };
 
-    if (invalidScores.length > 0) {
-      throw new Error(`Invalid scores: ${invalidScores.map(([key]) => key).join(', ')} must be non-negative integers`);
+    const blueScores: AllianceScores = {
+      autoScore: legacyScores.blueAutoScore,
+      driveScore: legacyScores.blueDriveScore,
+      totalScore: legacyScores.blueTotalScore,
+      breakdown: {
+        flagsPoints: legacyScores.blueAutoScore,
+        flagHitsPoints: legacyScores.blueDriveScore,
+        fieldControlPoints: 0,
+      },
+      input: { ...blueInput },
+    };
+
+    return {
+      redScores,
+      blueScores,
+      winningAlliance: this.determineWinner(legacyScores.redTotalScore, legacyScores.blueTotalScore),
+    };
+  }
+
+  private validateAllianceInput(input: AllianceScoreInput): void {
+    const invalidEntries = Object.entries(input).filter(([, value]) => value < 0 || !Number.isInteger(value));
+    if (invalidEntries.length > 0) {
+      throw new Error('Alliance score inputs must be non-negative integers');
     }
   }
 }

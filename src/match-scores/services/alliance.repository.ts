@@ -1,7 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { AllianceColor } from '../../utils/prisma-types';
-import { AllianceScores } from './score-calculation.service';
+
+export interface AllianceScorePersistence {
+  autoScore: number;
+  driveScore: number;
+  totalScore: number;
+}
 
 export interface AllianceData {
   id: string;
@@ -58,7 +63,7 @@ export class AllianceRepository {
   /**
    * Updates alliance scores
    */
-  async updateAllianceScores(allianceId: string, scores: AllianceScores): Promise<void> {
+  async updateAllianceScores(allianceId: string, scores: AllianceScorePersistence): Promise<void> {
     await this.prisma.alliance.update({
       where: { id: allianceId },
       data: {

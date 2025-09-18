@@ -99,8 +99,15 @@ export class EventsGateway
   @WebSocketServer() server: Server;
   private logger: Logger = new Logger('EventsGateway');
 
-  // Store audience display settings per tournament
+  // Store audience display settings per context (tournament/field)
   private audienceDisplaySettings: Map<string, AudienceDisplaySettings> = new Map();
+
+  // Cache of latest match/timer/score state per context
+  private latestMatchUpdates: Map<string, MatchData> = new Map();
+  private latestScoreUpdates: Map<string, ScoreData> = new Map();
+  private latestRealtimeScores: Map<string, ScoreUpdateDto> = new Map();
+  private latestMatchStates: Map<string, MatchStateData> = new Map();
+  private latestTimerStates: Map<string, TimerData> = new Map();
 
   // Store active timers per tournament
   private activeTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -121,6 +128,72 @@ export class EventsGateway
     });
 
     this.setupCentralizedConnectionEvents();
+  }
+
+  /**
+   * Build a consistent cache key for tournament/field scoped data
+   */
+  private getContextKey(fieldId?: string | null, tournamentId?: string): string | null {
+    if (fieldId) {
+      return `field:${fieldId}`;
+    }
+    if (tournamentId) {
+      return `tournament:${tournamentId}`;
+    }
+    return null;
+  }
+
+  /**
+   * Deep clone helpers to avoid mutating cached payloads later
+   */
+  private clonePayload<T>(payload: T): T {
+    return JSON.parse(JSON.stringify(payload));
+  }
+
+  /**
+   * Store payload for both tournament and field contexts when available
+   */
+  private cacheState<T extends { fieldId?: string | null; tournamentId?: string }>(
+    store: Map<string, T>,
+    payload: T,
+  ): void {
+    const { fieldId, tournamentId } = payload;
+    const tournamentKey = this.getContextKey(null, tournamentId);
+    const fieldKey = this.getContextKey(fieldId);
+
+    if (tournamentKey) {
+      store.set(tournamentKey, this.clonePayload(payload));
+    }
+    if (fieldKey) {
+      store.set(fieldKey, this.clonePayload(payload));
+    }
+  }
+
+  /**
+   * Emit cached state to a newly joined client so displays stay synchronized
+   */
+  private sendCachedStateToClient(client: Socket, tournamentId?: string, fieldId?: string | null): void {
+    const contextKeys = [
+      this.getContextKey(fieldId),
+      this.getContextKey(null, tournamentId),
+    ].filter((key): key is string => Boolean(key));
+
+    const sentEvents = new Set<string>();
+
+    const tryEmit = (event: string, data: any) => {
+      if (!data || sentEvents.has(event)) return;
+      client.emit(event, data);
+      sentEvents.add(event);
+    };
+
+    for (const key of contextKeys) {
+      tryEmit('display_mode_change', this.audienceDisplaySettings.get(key));
+      tryEmit('match_update', this.latestMatchUpdates.get(key));
+      tryEmit('score_update', this.latestScoreUpdates.get(key));
+      tryEmit('scoreUpdateRealtime', this.latestRealtimeScores.get(key));
+      tryEmit('match_state_change', this.latestMatchStates.get(key));
+      tryEmit('timer_update', this.latestTimerStates.get(key));
+    }
   }
 
   /**
@@ -198,12 +271,9 @@ export class EventsGateway
     const { tournamentId } = data;
     client.join(tournamentId);
     this.logger.log(`Client ${client.id} joined room: ${tournamentId}`);
-    
-    // Send current audience display settings to the newly joined client
-    const currentSettings = this.audienceDisplaySettings.get(tournamentId);
-    if (currentSettings) {
-      client.emit('display_mode_change', currentSettings);
-    }
+
+    // Provide any cached state so new clients stay in sync immediately
+    this.sendCachedStateToClient(client, tournamentId);
   }
 
   // Leave a tournament room
@@ -223,6 +293,10 @@ export class EventsGateway
     @MessageBody() payload: any // Accept any to allow fieldId
   ): void {
     this.logger.log(`Match update received: ${JSON.stringify(payload)}`);
+
+    // Cache the latest match update for resynchronization
+    this.cacheState(this.latestMatchUpdates, payload);
+
     if (payload.fieldId) {
       // Use emitToField for field-specific updates
       this.emitToField(payload.fieldId, 'match_update', payload);
@@ -242,6 +316,10 @@ export class EventsGateway
     @MessageBody() payload: any
   ): void {
     this.logger.log(`Score update received: ${JSON.stringify(payload)}`);
+
+    // Cache latest score update for reconnection flows
+    this.cacheState(this.latestScoreUpdates, payload);
+
     if (payload.fieldId) {
       // Use emitToField for field-specific updates
       this.logger.log(`Emitting score update to field: ${payload.fieldId}`);
@@ -299,6 +377,9 @@ export class EventsGateway
       this.logger.log('Broadcasted scoreUpdateRealtime to all clients (no field/tournament specified)');
     }
     // No DB write here: this is real-time only
+
+    // Cache for reconnection support
+    this.cacheState(this.latestRealtimeScores, eventData as ScoreUpdateDto & { fieldId?: string; tournamentId?: string });
   }
 
 
@@ -411,6 +492,9 @@ export class EventsGateway
   ): void {
     this.logger.log(`Timer update received - Duration: ${payload.duration}ms, Remaining: ${payload.remaining}ms, Running: ${payload.isRunning}, Period: ${payload.period}, Tournament: ${payload.tournamentId}, Field: ${payload.fieldId}`);
 
+    // Keep cache fresh when direct timer updates arrive
+    this.cacheState(this.latestTimerStates, payload);
+
     if (payload.fieldId) {
       // Use emitToField for field-specific updates
       this.emitToField(payload.fieldId, 'timer_update', payload);
@@ -435,6 +519,10 @@ export class EventsGateway
     @MessageBody() payload: any
   ): void {
     this.logger.log(`Match state change received: ${JSON.stringify(payload)}`);
+
+    // Cache latest state for reconnection handling
+    this.cacheState(this.latestMatchStates, payload);
+
     if (payload.fieldId) {
       // Use emitToField for field-specific updates
       this.emitToField(payload.fieldId, 'match_state_change', payload);
@@ -455,8 +543,8 @@ export class EventsGateway
     @MessageBody() payload: AudienceDisplaySettings
   ): void {
     this.logger.log(`Display mode change received: ${JSON.stringify(payload)}`);
-    // Store the latest settings for this tournament
-    this.audienceDisplaySettings.set(payload.tournamentId, payload);
+    // Store the latest settings for this context
+    this.cacheState(this.audienceDisplaySettings, payload);
 
     if (payload.tournamentId === "all") {
       // Special case: broadcast to ALL connected clients when tournamentId is "all"
@@ -566,6 +654,9 @@ export class EventsGateway
       this.server.to(tournamentId).emit('timer_update', initialUpdate);
       this.logger.log(`Timer start initial broadcast - Duration: ${initialUpdate.duration}ms, Remaining: ${initialUpdate.remaining}ms, Period: ${initialUpdate.period}, Tournament: ${tournamentId} (no field)`);
     }
+
+    // Cache latest timer state
+    this.cacheState(this.latestTimerStates, initialUpdate as TimerData & { fieldId?: string | null; tournamentId?: string });
   }
     // Pause a timer for a match (control panel)
   @SubscribeMessage('timer_pause')
@@ -599,6 +690,9 @@ export class EventsGateway
       this.server.to(tournamentId).emit('timer_update', pausedUpdate);
       this.logger.log(`Timer pause broadcast - Duration: ${pausedUpdate.duration}ms, Remaining: ${pausedUpdate.remaining}ms, Period: ${pausedUpdate.period}, Tournament: ${tournamentId} (no field)`);
     }
+
+    // Cache latest timer state
+    this.cacheState(this.latestTimerStates, pausedUpdate as TimerData & { fieldId?: string | null; tournamentId?: string });
   }
     // Reset a timer for a match (control panel)
   @SubscribeMessage('timer_reset')
@@ -634,6 +728,9 @@ export class EventsGateway
       this.server.to(tournamentId).emit('timer_update', resetUpdate);
       this.logger.log(`Timer reset broadcast - Duration: ${resetUpdate.duration}ms, Remaining: ${resetUpdate.remaining}ms, Period: ${resetUpdate.period}, Tournament: ${tournamentId} (no field)`);
     }
+
+    // Cache latest timer state
+    this.cacheState(this.latestTimerStates, resetUpdate as TimerData & { fieldId?: string | null; tournamentId?: string });
   }
 
 
@@ -660,12 +757,15 @@ export class EventsGateway
   @SubscribeMessage('joinFieldRoom')
   handleJoinFieldRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { fieldId: string }
+    @MessageBody() data: { fieldId: string; tournamentId?: string }
   ): void {
-    const { fieldId } = data;
+    const { fieldId, tournamentId } = data;
     const fieldRoomId = `field:${fieldId}`;
     client.join(fieldRoomId);
     this.logger.log(`Client ${client.id} joined field room: ${fieldRoomId}`);
+
+    // Immediately send cached state for this field/tournament
+    this.sendCachedStateToClient(client, tournamentId, fieldId);
   }
 
   // Leave a field-specific room

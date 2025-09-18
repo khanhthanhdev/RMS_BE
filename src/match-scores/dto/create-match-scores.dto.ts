@@ -111,7 +111,10 @@ export class CreateMatchScoresDto {
   blueMultiplier?: number;
   
   // Additional Score Details
-  @ApiProperty({ description: 'Additional score details as JSON', required: false })
+  @ApiProperty({ 
+    description: 'Additional score details as JSON. Expected structure: { red: { flagsSecured, successfulFlagHits, opponentFieldAmmo }, blue: { ... } }',
+    required: false,
+  })
   @IsObject()
   @IsOptional()
   scoreDetails?: Record<string, any>;

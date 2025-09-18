@@ -26,32 +26,37 @@ export class MatchScoresService {
       scoreData.validate();
 
       // Step 2: Validate match has required alliances
-      const { red: redAlliance, blue: blueAlliance } = 
+      const { red: redAlliance, blue: blueAlliance } =
         await this.allianceRepository.validateMatchAlliances(scoreData.matchId);
 
-      // Step 3: Calculate scores and determine winner (with penalties)
-      const redPenalty = Number(scoreData.redPenalty || 0);
-      const bluePenalty = Number(scoreData.bluePenalty || 0);
-      const redTotalScore = Number(scoreData.redAutoScore) + Number(scoreData.redDriveScore) + bluePenalty;
-      const blueTotalScore = Number(scoreData.blueAutoScore) + Number(scoreData.blueDriveScore) + redPenalty;
-      let winningAlliance: 'RED' | 'BLUE' | null = null;
-      if (redTotalScore > blueTotalScore) winningAlliance = 'RED';
-      else if (blueTotalScore > redTotalScore) winningAlliance = 'BLUE';
+      // Step 3: Calculate scores based on the new tournament rules
+      const matchScores = scoreData.hasDetailedInputs()
+        ? this.scoreCalculationService.calculateMatchScores(
+            scoreData.redAlliance,
+            scoreData.blueAlliance,
+          )
+        : this.scoreCalculationService.buildLegacyMatchScores(
+            scoreData.getLegacyScores(),
+            scoreData.redAlliance,
+            scoreData.blueAlliance,
+          );
 
-      // Step 4: Update alliance scores (only valid fields)
+      const { redScores, blueScores, winningAlliance } = matchScores;
+
+      // Step 4: Persist alliance scores (autoScore and driveScore now map to component totals)
       await this.allianceRepository.updateAllianceScores(redAlliance.id, {
-        autoScore: scoreData.redAutoScore,
-        driveScore: scoreData.redDriveScore,
-        totalScore: redTotalScore,
+        autoScore: redScores.autoScore,
+        driveScore: redScores.driveScore,
+        totalScore: redScores.totalScore,
       });
       await this.allianceRepository.updateAllianceScores(blueAlliance.id, {
-        autoScore: scoreData.blueAutoScore,
-        driveScore: scoreData.blueDriveScore,
-        totalScore: blueTotalScore,
+        autoScore: blueScores.autoScore,
+        driveScore: blueScores.driveScore,
+        totalScore: blueScores.totalScore,
       });
 
       // Step 5: Update match winner
-      await this.matchResultService.updateMatchWinner(scoreData.matchId, winningAlliance as any);
+      await this.matchResultService.updateMatchWinner(scoreData.matchId, winningAlliance);
 
       // Step 6: Update team statistics
       await this.updateTeamStatistics(scoreData.matchId);
@@ -60,16 +65,27 @@ export class MatchScoresService {
       return {
         id: scoreData.matchId,
         matchId: scoreData.matchId,
-        redAutoScore: scoreData.redAutoScore,
-        redDriveScore: scoreData.redDriveScore,
-        redPenaltyScore: bluePenalty,
-        redPenaltyGiven: redPenalty,
-        redTotalScore,
-        blueAutoScore: scoreData.blueAutoScore,
-        blueDriveScore: scoreData.blueDriveScore,
-        bluePenaltyScore: redPenalty,
-        bluePenaltyGiven: bluePenalty,
-        blueTotalScore,
+        redAutoScore: redScores.autoScore,
+        redDriveScore: redScores.driveScore,
+        redPenaltyScore: 0,
+        redPenaltyGiven: 0,
+        redTotalScore: redScores.totalScore,
+        blueAutoScore: blueScores.autoScore,
+        blueDriveScore: blueScores.driveScore,
+        bluePenaltyScore: 0,
+        bluePenaltyGiven: 0,
+        blueTotalScore: blueScores.totalScore,
+        scoreDetails: {
+          red: redScores.input,
+          blue: blueScores.input,
+          breakdown: {
+            red: redScores.breakdown,
+            blue: blueScores.breakdown,
+          },
+          metadata: {
+            scoringMode: scoreData.hasDetailedInputs() ? 'detailed' : 'legacy',
+          },
+        },
         createdAt: new Date(),
         updatedAt: new Date(),
       };
