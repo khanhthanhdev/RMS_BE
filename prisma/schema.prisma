@@ -112,6 +112,7 @@ model Match {
   matchDuration   Int? // Duration of the match in seconds (overrides default if set)  createdAt         DateTime       @default(now())
   updatedAt       DateTime        @updatedAt
   matchScores     MatchScore[] // New relation to flexible match scores
+  scoreDetails    MatchScoreDetail?
   fieldDisplays   FieldDisplay[]  @relation("FieldDisplayCurrentMatch") // Relation to field displays showing this match
 
   @@index([stageId])
@@ -378,6 +379,16 @@ model MatchScore {
   @@index([matchId])
   @@index([allianceId])
   @@index([scoreElementId])
+}
+
+model MatchScoreDetail {
+  matchId      String   @id
+  scoreDetails Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  match        Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
 }
 
 enum UserRole {

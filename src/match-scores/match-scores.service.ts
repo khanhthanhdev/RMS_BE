@@ -5,6 +5,8 @@ import { AllianceRepository } from './services/alliance.repository';
 import { MatchResultService } from './services/match-result.service';
 import { ITeamStatsService } from './interfaces/team-stats.interface';
 import { ScoreDataDto } from './dto/score-data.dto';
+import { PrismaService } from '../prisma.service';
+import { RankingUpdateService } from './ranking-update.service';
 
 
 @Injectable()
@@ -13,6 +15,8 @@ export class MatchScoresService {
     private readonly scoreCalculationService: ScoreCalculationService,
     private readonly allianceRepository: AllianceRepository,
     private readonly matchResultService: MatchResultService,
+    private readonly prisma: PrismaService,
+    private readonly rankingUpdateService: RankingUpdateService,
     @Inject('ITeamStatsService') private readonly teamStatsService: ITeamStatsService
   ) {}
   /**
@@ -61,7 +65,31 @@ export class MatchScoresService {
       // Step 6: Update team statistics
       await this.updateTeamStatistics(scoreData.matchId);
 
-      // Step 7: Return legacy format for backward compatibility
+      const scoreDetailsPayload = {
+        red: { ...redScores.input },
+        blue: { ...blueScores.input },
+        breakdown: {
+          red: { ...redScores.breakdown },
+          blue: { ...blueScores.breakdown },
+        },
+        metadata: {
+          scoringMode: scoreData.hasDetailedInputs() ? 'detailed' : 'legacy',
+        },
+      } as any;
+
+      // Step 7: Persist detailed score breakdown for retrieval
+      await this.prisma.matchScoreDetail.upsert({
+        where: { matchId: scoreData.matchId },
+        create: {
+          matchId: scoreData.matchId,
+          scoreDetails: scoreDetailsPayload,
+        },
+        update: {
+          scoreDetails: scoreDetailsPayload,
+        },
+      });
+
+      // Step 8: Return legacy format with detailed breakdown for backward compatibility
       return {
         id: scoreData.matchId,
         matchId: scoreData.matchId,
@@ -75,17 +103,7 @@ export class MatchScoresService {
         bluePenaltyScore: 0,
         bluePenaltyGiven: 0,
         blueTotalScore: blueScores.totalScore,
-        scoreDetails: {
-          red: redScores.input,
-          blue: blueScores.input,
-          breakdown: {
-            red: redScores.breakdown,
-            blue: blueScores.breakdown,
-          },
-          metadata: {
-            scoringMode: scoreData.hasDetailedInputs() ? 'detailed' : 'legacy',
-          },
-        },
+        scoreDetails: scoreDetailsPayload,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -104,14 +122,26 @@ export class MatchScoresService {
     if (matchWithDetails) {
       const teamIds = this.matchResultService.extractTeamIds(matchWithDetails);
       await this.teamStatsService.recalculateTeamStats(matchWithDetails, teamIds);
+
+      await this.rankingUpdateService.triggerRankingUpdate(
+        matchWithDetails.stage.tournament.id,
+        matchWithDetails.stage.id,
+        matchId
+      );
     }
-  }  /**
+  }
+
+  /**
    * Finds match scores by match ID
    */
   async findByMatchId(matchId: string) {
     try {
       const alliances = await this.allianceRepository.getAlliancesForMatch(matchId);
-      return this.convertAlliancesToLegacyFormat(matchId, alliances);
+      const detail = await this.prisma.matchScoreDetail.findUnique({
+        where: { matchId },
+      });
+
+      return this.convertAlliancesToLegacyFormat(matchId, alliances, detail?.scoreDetails ?? null);
     } catch (error) {
       throw new NotFoundException(`Failed to find match scores for match ${matchId}: ${error.message}`);
     }
@@ -122,9 +152,15 @@ export class MatchScoresService {
   async findAll() {
     try {
       const matchesWithAlliances = await this.allianceRepository.getAllMatchesWithAlliances();
-      
-      return matchesWithAlliances.map(({ matchId, alliances }) => 
-        this.convertAlliancesToLegacyFormat(matchId, alliances)
+
+      const matchIds = matchesWithAlliances.map(({ matchId }) => matchId);
+      const details = await this.prisma.matchScoreDetail.findMany({
+        where: { matchId: { in: matchIds } },
+      });
+      const detailMap = new Map(details.map(detail => [detail.matchId, detail.scoreDetails]));
+
+      return matchesWithAlliances.map(({ matchId, alliances }) =>
+        this.convertAlliancesToLegacyFormat(matchId, alliances, detailMap.get(matchId) ?? null)
       );
     } catch (error) {
       throw new BadRequestException(`Failed to retrieve all match scores: ${error.message}`);
@@ -162,6 +198,11 @@ export class MatchScoresService {
       // Reset match winner
       await this.matchResultService.resetMatchWinner(matchId);
 
+      // Remove persisted score details if present
+      await this.prisma.matchScoreDetail.delete({
+        where: { matchId },
+      }).catch(() => undefined);
+
       return { message: `Reset scores for match ${matchId}` };
     } catch (error) {
       throw new BadRequestException(`Failed to reset match scores: ${error.message}`);
@@ -171,7 +212,7 @@ export class MatchScoresService {
   /**
    * Converts alliance data to legacy format
    */
-  private convertAlliancesToLegacyFormat(matchId: string, alliances: any[]) {
+  private convertAlliancesToLegacyFormat(matchId: string, alliances: any[], scoreDetails: any | null = null) {
     const redAlliance = alliances.find(a => a.color === 'RED');
     const blueAlliance = alliances.find(a => a.color === 'BLUE');
 
@@ -184,6 +225,7 @@ export class MatchScoresService {
       blueAutoScore: blueAlliance?.autoScore || 0,
       blueDriveScore: blueAlliance?.driveScore || 0,
       blueTotalScore: blueAlliance?.totalScore || 0,
+      scoreDetails,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
