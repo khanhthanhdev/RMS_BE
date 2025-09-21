@@ -12,6 +12,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger, Injectable } from '@nestjs/common';
 import { MatchScoresService } from '../match-scores/match-scores.service';
+import { setGlobalEventsGateway } from '../match-scores/ranking-update.service';
 import { GameElementDto } from '../match-scores/dto/create-match-scores.dto';
 import { MatchState } from '../utils/prisma-types';
 import {
@@ -128,6 +129,7 @@ export class EventsGateway
     });
 
     this.setupCentralizedConnectionEvents();
+    setGlobalEventsGateway(this);
   }
 
   /**

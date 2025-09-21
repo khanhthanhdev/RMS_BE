@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, Logger } from '@nestjs/common';
 import { CreateMatchScoresDto, UpdateMatchScoresDto } from './dto';
 import { ScoreCalculationService } from './services/score-calculation.service';
 import { AllianceRepository } from './services/alliance.repository';
@@ -7,16 +7,20 @@ import { ITeamStatsService } from './interfaces/team-stats.interface';
 import { ScoreDataDto } from './dto/score-data.dto';
 import { PrismaService } from '../prisma.service';
 import { RankingUpdateService } from './ranking-update.service';
+import { StagesService } from '../stages/stages.service';
 
 
 @Injectable()
 export class MatchScoresService {
+  private readonly logger = new Logger(MatchScoresService.name);
+
   constructor(
     private readonly scoreCalculationService: ScoreCalculationService,
     private readonly allianceRepository: AllianceRepository,
     private readonly matchResultService: MatchResultService,
     private readonly prisma: PrismaService,
     private readonly rankingUpdateService: RankingUpdateService,
+    private readonly stagesService: StagesService,
     @Inject('ITeamStatsService') private readonly teamStatsService: ITeamStatsService
   ) {}
   /**
@@ -128,6 +132,16 @@ export class MatchScoresService {
         matchWithDetails.stage.id,
         matchId
       );
+
+      await this.safeBroadcastBracket(matchWithDetails.stage.id);
+    }
+  }
+
+  private async safeBroadcastBracket(stageId: string): Promise<void> {
+    try {
+      await this.stagesService.broadcastStageBracket(stageId);
+    } catch (error) {
+      this.logger.warn(`Failed to broadcast bracket update for stage ${stageId}: ${error.message}`);
     }
   }
 

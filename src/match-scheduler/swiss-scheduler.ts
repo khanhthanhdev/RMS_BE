@@ -272,7 +272,7 @@ export class SwissScheduler {
     // Group teams by similar performance (Swiss pairing)
     const matches: PrismaMatch[] = [];
     const usedTeams = new Set<string>();
-    
+
     // Get the highest match number already used in this stage
     const existingMatches = await this.prisma.match.findMany({
       where: { stageId },
@@ -282,6 +282,17 @@ export class SwissScheduler {
     });
     
     let nextMatchNumber = existingMatches.length > 0 ? existingMatches[0].matchNumber + 1 : 1;
+
+    const existingBracketSlot = await this.prisma.match.findMany({
+      where: { stageId, bracketSlot: { not: null } },
+      select: { bracketSlot: true },
+      orderBy: { bracketSlot: 'desc' },
+      take: 1
+    });
+
+    let nextBracketSlot = existingBracketSlot.length > 0 && existingBracketSlot[0].bracketSlot
+      ? (existingBracketSlot[0].bracketSlot as number) + 1
+      : 1;
       // Sort teams by ranking points, then by tiebreakers
     const sortedTeams = [...rankings].sort((a, b) => {
       if (b.rankingPoints !== a.rankingPoints) return b.rankingPoints - a.rankingPoints;
@@ -306,12 +317,17 @@ export class SwissScheduler {
       const redTeam1 = matchTeams[0];
       const redTeam2 = matchTeams[1];
       const blueTeam1 = matchTeams[2];
-      const blueTeam2 = matchTeams[3];const match = await this.prisma.match.create({
+      const blueTeam2 = matchTeams[3];
+      const recordBucket = this.getRecordBucket(matchTeams);
+
+      const match = await this.prisma.match.create({
         data: {
           stageId,
           roundNumber,
           matchNumber: nextMatchNumber,
-          status: 'PENDING',
+          status: MatchState.PENDING,
+          bracketSlot: nextBracketSlot,
+          recordBucket,
           alliances: {
             create: [
               {
@@ -346,16 +362,32 @@ export class SwissScheduler {
             },
           },
         },
-      });      matches.push(match);
+      });
+
+      matches.push(match);
       usedTeams.add(redTeam1.teamId);
       usedTeams.add(redTeam2.teamId);
       usedTeams.add(blueTeam1.teamId);
       usedTeams.add(blueTeam2.teamId);
         // Increment match number for next match
       nextMatchNumber++;
+      nextBracketSlot++;
     }
 
     console.log(`\nGenerated ${matches.length} Swiss matches for round ${roundNumber}`);
     return matches;
+  }
+
+  private getRecordBucket(matchTeams: any[]): string | null {
+    if (!matchTeams || matchTeams.length === 0) {
+      return null;
+    }
+
+    const sample = matchTeams[0];
+    if (typeof sample.wins !== 'number' || typeof sample.losses !== 'number') {
+      return null;
+    }
+
+    return `${sample.wins}-${sample.losses}`;
   }
 }

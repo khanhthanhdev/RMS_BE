@@ -49,6 +49,10 @@ export function setGlobalEventsGateway(gateway: any) {
   globalEventsGateway = gateway;
 }
 
+export function getGlobalEventsGateway() {
+  return globalEventsGateway;
+}
+
 @Injectable()
 export class RankingUpdateService {
   private readonly logger = new Logger(RankingUpdateService.name);

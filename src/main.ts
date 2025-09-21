@@ -64,7 +64,7 @@ async function bootstrap(): Promise<void> {
   // Enable CORS with specific configuration for credentialed requests
   const allowedOrigins = process.env.NODE_ENV === 'production' 
     ? [process.env.FRONTEND_URL] 
-    : ['http://localhost:3000', 'http://localhost:3001'];
+    : ['http://localhost:3000', 'http://localhost:3001', 'https://ba6ec99f071b.ngrok-free.app'];
 
   app.enableCors({
     origin: allowedOrigins,

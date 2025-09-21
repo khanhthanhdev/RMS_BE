@@ -9,9 +9,11 @@ import { TeamStatsService } from './team-stats.service';
 import { ITeamStatsService } from './interfaces/team-stats.interface';
 import { RankingUpdateService } from './ranking-update.service';
 import { TeamStatsApiService } from './team-stats-api.service';
+import { StagesModule } from '../stages/stages.module';
 
 
 @Module({
+  imports: [StagesModule],
   controllers: [MatchScoresController],
   providers: [
     MatchScoresService,

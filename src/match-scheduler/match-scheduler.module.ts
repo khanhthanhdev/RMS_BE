@@ -12,8 +12,10 @@ import { FrcScheduler } from './frc-scheduler';
 import { SwissScheduler } from './swiss-scheduler';
 import { PlayoffScheduler } from './playoff-scheduler';
 import { ISchedulingStrategy } from './interfaces/scheduling-strategy.interface';
+import { StagesModule } from '../stages/stages.module';
 
 @Module({
+  imports: [StagesModule],
   providers: [
     MatchSchedulerService,
     PrismaService,

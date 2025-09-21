@@ -5,6 +5,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '../utils/prisma-types';
 import { FrcSchedulerConfig, PRESET_CONFIGS } from './frc-scheduler.config';
+import { StagesService } from '../stages/stages.service';
 
 /**
  * Controller for match scheduling operations.
@@ -13,7 +14,10 @@ import { FrcSchedulerConfig, PRESET_CONFIGS } from './frc-scheduler.config';
 @Controller('match-scheduler')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class MatchSchedulerController {
-    constructor(private readonly matchSchedulerService: MatchSchedulerService) { }
+    constructor(
+        private readonly matchSchedulerService: MatchSchedulerService,
+        private readonly stagesService: StagesService,
+    ) { }
 
     /**
      * Generates a schedule using the FRC scheduling algorithm.
@@ -41,6 +45,7 @@ export class MatchSchedulerController {
             data.config,
             data.preset
         );
+        await this.stagesService.broadcastStageBracket(data.stageId);
         
         // Use stageId since stage object isn't available in the returned data
         const stageName = `ID ${data.stageId}`;
@@ -65,6 +70,7 @@ export class MatchSchedulerController {
             data.stageId,
             data.config
         );
+        await this.stagesService.broadcastStageBracket(data.stageId);
         
         return {
             message: `Successfully created ${schedule.length} matches for stage ${data.stageId} with custom configuration`,
@@ -102,6 +108,7 @@ export class MatchSchedulerController {
             data.currentRoundNumber,
             data.teamsPerAlliance || 2
         );
+        await this.stagesService.broadcastStageBracket(data.stageId);
         
         return {
             message: `Successfully generated Swiss round ${data.currentRoundNumber + 1}`,
@@ -151,6 +158,7 @@ export class MatchSchedulerController {
             data.numberOfRounds,
             data.teamsPerAlliance || 2
         );
+        await this.stagesService.broadcastStageBracket(data.stageId);
         
         return {
             message: `Successfully generated playoff tournament with ${data.numberOfRounds} rounds`,
@@ -166,6 +174,9 @@ export class MatchSchedulerController {
     @Roles(UserRole.ADMIN)
     async updatePlayoffBrackets(@Param('matchId') matchId: string) {
         const updatedMatches = await this.matchSchedulerService.updatePlayoffBrackets(matchId);
+        if (updatedMatches.length) {
+            await this.stagesService.broadcastStageBracket(updatedMatches[0].stageId);
+        }
         
         return {
             message: `Updated ${updatedMatches.length} playoff bracket matches`,
@@ -181,6 +192,7 @@ export class MatchSchedulerController {
     @Roles(UserRole.ADMIN)
     async finalizePlayoffRankings(@Param('stageId') stageId: string) {
         const finalMatches = await this.matchSchedulerService.finalizePlayoffRankings(stageId);
+        await this.stagesService.broadcastStageBracket(stageId);
         
         return {
             message: `Finalized rankings for ${finalMatches.length} playoff matches`,

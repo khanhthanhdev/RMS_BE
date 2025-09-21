@@ -65,6 +65,20 @@ export class StagesController {
   }
 
   /**
+   * Get normalized bracket data for a stage
+   */
+  @Get(':id/bracket')
+  async getBracket(@Param('id') id: string) {
+    const bracket = await this.stagesService.getStageBracket(id);
+
+    return {
+      success: true,
+      message: `Retrieved bracket data for stage ${bracket.stageName}`,
+      data: bracket,
+    };
+  }
+
+  /**
    * Update a stage
    * Only admins can update stages
    */

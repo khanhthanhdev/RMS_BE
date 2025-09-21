@@ -9,30 +9,30 @@ datasource db {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  username      String         @unique
-  password      String
-  role          UserRole       @default(COMMON)
-  name          String
-  dateOfBirth   DateTime?
-  email         String         @unique
-  phoneNumber   String         @unique
-  gender        Gender?
-  isActive      Boolean        @default(true) // Account status
-  lastLoginAt   DateTime? // Track last login
-  emailVerified Boolean        @default(false) // Email verification
+  id                        String         @id @default(uuid())
+  username                  String         @unique
+  password                  String
+  role                      UserRole       @default(COMMON)
+  name                      String
+  dateOfBirth               DateTime?
+  email                     String         @unique
+  phoneNumber               String         @unique
+  gender                    Gender?
+  isActive                  Boolean        @default(true) // Account status
+  lastLoginAt               DateTime? // Track last login
+  emailVerified             Boolean        @default(false) // Email verification
   lastVerificationEmailSent DateTime? // Track when verification email was last sent
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  createdBy     User?          @relation("CreatedUsers", fields: [createdById], references: [id])
-  createdById   String?
-  createdUsers  User[]         @relation("CreatedUsers")
-  tournaments   Tournament[]
-  scoredMatches Match[]        @relation("ScoredBy")
-  matchReferees MatchReferee[] // New relation for match referees
-  fieldDisplays FieldDisplay[] // Relation to field displays updated by this user
-  fieldReferees FieldReferee[] // Relation to field referee assignments
-  Team          Team[]
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+  createdBy                 User?          @relation("CreatedUsers", fields: [createdById], references: [id])
+  createdById               String?
+  createdUsers              User[]         @relation("CreatedUsers")
+  tournaments               Tournament[]
+  scoredMatches             Match[]        @relation("ScoredBy")
+  matchReferees             MatchReferee[] // New relation for match referees
+  fieldDisplays             FieldDisplay[] // Relation to field displays updated by this user
+  fieldReferees             FieldReferee[] // Relation to field referee assignments
+  Team                      Team[]
 
   @@index([createdById])
 }
@@ -43,7 +43,7 @@ model Tournament {
   description          String?
   startDate            DateTime
   endDate              DateTime
-  registrationDeadline DateTime?     // Optional registration deadline
+  registrationDeadline DateTime? // Optional registration deadline
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
   adminId              String
@@ -64,7 +64,7 @@ model Tournament {
 model Stage {
   id               String      @id @default(uuid())
   name             String
-  description      String?     // Optional stage description
+  description      String? // Optional stage description
   type             StageType
   status           StageStatus @default(ACTIVE) // Use proper enum instead of string
   startDate        DateTime
@@ -74,9 +74,9 @@ model Stage {
   matches          Match[]
   teamStats        TeamStats[] // Added relation field for TeamStats
   teamsPerAlliance Int         @default(2) // Number of teams per alliance (2v2, 3v3, etc.)
-  maxTeams         Int?        // Maximum teams allowed in this stage
+  maxTeams         Int? // Maximum teams allowed in this stage
   isElimination    Boolean     @default(false) // Whether this is an elimination stage
-  advancementRules String?     // Rules for advancing to next stage
+  advancementRules String? // Rules for advancing to next stage
 
   // Add relationship to teams in this stage
   teams Team[] @relation("StageTeams")
@@ -88,32 +88,41 @@ model Stage {
 }
 
 model Match {
-  id              String          @id @default(uuid())
-  matchNumber     Int
-  roundNumber     Int? // The round number this match belongs to
-  status          MatchState      @default(PENDING)
-  startTime       DateTime? // Full timestamp with hour-minute precision
-  scheduledTime   DateTime? // New field for the scheduled time with hour-minute precision
-  endTime         DateTime? // Full timestamp with hour-minute precision
-  duration        Int? // Duration in minutes
-  winningAlliance AllianceColor? // "RED" or "BLUE" - indicates which alliance won
-  stageId         String
-  stage           Stage           @relation(fields: [stageId], references: [id], onDelete: Cascade)
-  alliances       Alliance[]
-  scoredById      String?
-  scoredBy        User?           @relation("ScoredBy", fields: [scoredById], references: [id], onDelete: SetNull)
-  referees        MatchReferee[]
-  roundType       MatchRoundType? // e.g., "QUALIFICATION", "SWISS", "PLAYOFF", "FINAL"
-  scheduleId      String?
+  id                    String            @id @default(uuid())
+  matchNumber           Int
+  roundNumber           Int? // The round number this match belongs to
+  status                MatchState        @default(PENDING)
+  startTime             DateTime? // Full timestamp with hour-minute precision
+  scheduledTime         DateTime? // New field for the scheduled time with hour-minute precision
+  endTime               DateTime? // Full timestamp with hour-minute precision
+  duration              Int? // Duration in minutes
+  winningAlliance       AllianceColor? // "RED" or "BLUE" - indicates which alliance won
+  stageId               String
+  stage                 Stage             @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  alliances             Alliance[]
+  scoredById            String?
+  scoredBy              User?             @relation("ScoredBy", fields: [scoredById], references: [id], onDelete: SetNull)
+  referees              MatchReferee[]
+  roundType             MatchRoundType? // e.g., "QUALIFICATION", "SWISS", "PLAYOFF", "FINAL"
+  scheduleId            String?
   // schedule          Schedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull) // The Schedule model is not defined in the schema
-  fieldId         String?
-  field           Field?          @relation(fields: [fieldId], references: [id], onDelete: SetNull)
-  matchType       MatchType       @default(FULL) // Type of match: FULL, TELEOP_ENDGAME
-  matchDuration   Int? // Duration of the match in seconds (overrides default if set)  createdAt         DateTime       @default(now())
-  updatedAt       DateTime        @updatedAt
-  matchScores     MatchScore[] // New relation to flexible match scores
-  scoreDetails    MatchScoreDetail?
-  fieldDisplays   FieldDisplay[]  @relation("FieldDisplayCurrentMatch") // Relation to field displays showing this match
+  fieldId               String?
+  field                 Field?            @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  matchType             MatchType         @default(FULL) // Type of match: FULL, TELEOP_ENDGAME
+  matchDuration         Int? // Duration of the match in seconds (overrides default if set)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  matchScores           MatchScore[] // New relation to flexible match scores
+  scoreDetails          MatchScoreDetail?
+  fieldDisplays         FieldDisplay[]    @relation("FieldDisplayCurrentMatch") // Relation to field displays showing this match
+  bracketSlot           Int?
+  feedsIntoMatchId      String?
+  feedsIntoMatch        Match?            @relation("MatchWinnerAdvances", fields: [feedsIntoMatchId], references: [id], onDelete: SetNull)
+  feederMatches         Match[]           @relation("MatchWinnerAdvances")
+  loserFeedsIntoMatchId String?
+  loserFeedsIntoMatch   Match?            @relation("MatchLoserAdvances", fields: [loserFeedsIntoMatchId], references: [id], onDelete: SetNull)
+  loserFeederMatches    Match[]           @relation("MatchLoserAdvances")
+  recordBucket          String?
 
   @@index([stageId])
   @@index([scoredById])
@@ -121,6 +130,8 @@ model Match {
   @@index([fieldId])
   @@index([stageId, matchNumber]) // Composite index for stage-specific match queries
   @@index([status, startTime]) // Index for filtering by status and ordering by time
+  @@index([stageId, roundNumber])
+  @@index([stageId, bracketSlot])
 }
 
 model MatchReferee {
