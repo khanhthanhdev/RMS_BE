@@ -204,10 +204,10 @@ async function seedTeamStats(
 async function seedPlayoffBracket(adminId: string) {
   const tournament = await upsertTournament(
     PLAYOFF_TOURNAMENT_ID,
-    'Demo Playoff Bracket',
+    'Demo Playoff Bracket (16 Teams)',
     adminId,
   );
-  const teams = await upsertTeams(tournament.id, 'playoff', 8);
+  const teams = await upsertTeams(tournament.id, 'playoff', 16);
   await upsertStage(
     PLAYOFF_STAGE_ID,
     tournament.id,
@@ -234,17 +234,17 @@ async function seedPlayoffBracket(adminId: string) {
   }
 
   const scheduler = new PlayoffScheduler(prismaClient);
-  const matches = await scheduler.generatePlayoffSchedule(stage, 3);
+  const matches = await scheduler.generatePlayoffSchedule(stage, 4); // 4 rounds for 16 teams
   return matches;
 }
 
 async function seedSwissBracket(adminId: string) {
   const tournament = await upsertTournament(
     SWISS_TOURNAMENT_ID,
-    'Demo Swiss Bracket',
+    'Demo Swiss Bracket (16 Teams)',
     adminId,
   );
-  const teams = await upsertTeams(tournament.id, 'swiss', 8);
+  const teams = await upsertTeams(tournament.id, 'swiss', 16);
   await upsertStage(
     SWISS_STAGE_ID,
     tournament.id,

@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, Min, Max, IsString, IsUUID } from 'class-validator';
+import { IsInt, IsOptional, Min, Max, IsString, IsUUID, IsIn } from 'class-validator';
 
 export class ScheduleConfigDto {
     @IsUUID()
@@ -13,9 +13,11 @@ export class ScheduleConfigDto {
     @Max(10)
     minMatchSeparation: number;
 
+    @IsOptional()
     @IsInt()
     @Min(1)
-    @IsOptional()
+    @Max(3)
+    @IsIn([1, 2, 3])
     teamsPerAlliance: number = 3;
 
     @IsInt()

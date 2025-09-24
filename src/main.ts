@@ -42,6 +42,39 @@ async function verifyPrismaGenerated(): Promise<void> {
 }
 
 /**
+ * Parse a comma-separated environment variable into distinct origins.
+ */
+function parseOriginsEnv(value?: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+}
+
+/**
+ * Escape special characters for use in a RegExp.
+ */
+function escapeRegExp(value: string): string {
+  return value.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
+/**
+ * Convert wildcard patterns (e.g. https://*.trycloudflare.com) to RegExp.
+ */
+function patternToRegExp(pattern: string): RegExp {
+  const escapedSegments = pattern
+    .trim()
+    .split('*')
+    .map((segment) => escapeRegExp(segment));
+  const regexBody = escapedSegments.join('.*');
+  return new RegExp(`^${regexBody}$`);
+}
+
+/**
  * Bootstrap the NestJS application
  */
 async function bootstrap(): Promise<void> {
@@ -57,17 +90,69 @@ async function bootstrap(): Promise<void> {
   
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
-  
+
   // Enable cookie parsing for HTTP-only JWT cookies
   app.use(cookieParser());
 
   // Enable CORS with specific configuration for credentialed requests
-  const allowedOrigins = process.env.NODE_ENV === 'production' 
-    ? [process.env.FRONTEND_URL] 
-    : ['http://localhost:3000', 'http://localhost:3001', 'https://ba6ec99f071b.ngrok-free.app'];
+  const defaultDevOrigins = [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
+  ];
+
+  const configuredOrigins = [
+    ...parseOriginsEnv(process.env.FRONTEND_URL),
+    ...parseOriginsEnv(process.env.CORS_ALLOWED_ORIGINS),
+  ];
+
+  const configuredPatterns = parseOriginsEnv(
+    process.env.CORS_ALLOWED_ORIGIN_PATTERNS,
+  ).map(patternToRegExp);
+
+  const wildcardPatterns: RegExp[] = [
+    ...(process.env.NODE_ENV === 'production'
+      ? []
+      : [patternToRegExp('https://*.trycloudflare.com')]),
+    ...configuredPatterns,
+  ];
+
+  const corsAllowList = new Set(
+    (process.env.NODE_ENV === 'production'
+      ? configuredOrigins
+      : [...defaultDevOrigins, ...configuredOrigins])
+      .filter(Boolean),
+  );
+
+  logger.log(
+    `CORS allowlist (exact): ${JSON.stringify(Array.from(corsAllowList))}`,
+  );
+  if (wildcardPatterns.length > 0) {
+    logger.log(
+      `CORS wildcard patterns: ${JSON.stringify(
+        wildcardPatterns.map((pattern) => pattern.source),
+      )}`,
+    );
+  }
 
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin) {
+        // Allow non-browser clients or same-origin requests
+        return callback(null, true);
+      }
+
+      if (
+        corsAllowList.has(origin) ||
+        wildcardPatterns.some((pattern) => pattern.test(origin))
+      ) {
+        return callback(null, true);
+      }
+
+      logger.warn(`Blocked CORS origin: ${origin}`);
+      return callback(new Error(`Origin ${origin} not allowed by CORS policy`), false);
+    },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
     allowedHeaders: 'Content-Type,Accept,Authorization,Cookie',

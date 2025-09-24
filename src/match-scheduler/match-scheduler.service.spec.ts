@@ -277,6 +277,10 @@ describe('MatchSchedulerService', () => {
       jest.clearAllMocks();
     });
 
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('distributes 4 matches equally across 2 fields', async () => {
       const fields = [
         { id: 'fieldA', number: 1 },
@@ -292,7 +296,7 @@ describe('MatchSchedulerService', () => {
         stageId: 'stage1',
         alliances: [],
       }));
-      mockStrategy.generateMatches.mockResolvedValue(mockMatches);
+      jest.spyOn((service as any).frcScheduler, 'generateFrcSchedule').mockResolvedValue(mockMatches as any);
       
       prisma.stage.findUnique.mockResolvedValue({
         ...baseStage,
@@ -330,7 +334,7 @@ describe('MatchSchedulerService', () => {
         stageId: 'stage1',
         alliances: [],
       }));
-      mockStrategy.generateMatches.mockResolvedValue(mockMatches);
+      jest.spyOn((service as any).frcScheduler, 'generateFrcSchedule').mockResolvedValue(mockMatches as any);
       
       prisma.stage.findUnique.mockResolvedValue({
         ...baseStage,

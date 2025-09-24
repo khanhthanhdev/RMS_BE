@@ -55,8 +55,11 @@ export class MatchSchedulerService {
     
     const strategy = this.schedulingStrategyFactory.createStrategy(stage);
     this.logger.log(`Using ${strategy.getStrategyType()} scheduling strategy`);
+
+    const teamsPerAlliance = this.resolveTeamsPerAlliance(stage, options);
+    const normalizedOptions = this.applyTeamsPerAlliance(options, teamsPerAlliance);
     
-    return strategy.generateMatches(stage, options);
+    return strategy.generateMatches(stage, normalizedOptions);
   }
 
   /**
@@ -66,7 +69,7 @@ export class MatchSchedulerService {
   async generateFrcSchedule(
     stageId: string, 
     rounds?: number, 
-    teamsPerAlliance: number = this.DEFAULT_TEAMS_PER_ALLIANCE, 
+    teamsPerAlliance?: number, 
     minMatchSeparation: number = 1,
     maxIterations?: number,
     qualityLevel: 'low' | 'medium' | 'high' = 'medium',
@@ -89,12 +92,16 @@ export class MatchSchedulerService {
     const stage = await this.getStageWithDetails(stageId);
     this.validateStageForScheduling(stage);
     
+    const effectiveTeamsPerAlliance = config?.teamsPerAlliance ?? teamsPerAlliance ?? stage.teamsPerAlliance ?? this.DEFAULT_TEAMS_PER_ALLIANCE;
+    this.frcScheduler.setConfig({ teamsPerAlliance: effectiveTeamsPerAlliance });
+
     return this.frcScheduler.generateFrcSchedule(
       stage,
       rounds,
       minMatchSeparation,
       maxIterations,
-      qualityLevel
+      qualityLevel,
+      effectiveTeamsPerAlliance
     );
   }
 
@@ -107,24 +114,32 @@ export class MatchSchedulerService {
   ): Promise<PrismaMatch[]> {
     this.logger.log(`Generating FRC schedule with custom configuration for stage ${stageId}`);
     
-    // Set the configuration
-    this.frcScheduler.setConfig(config);
-    
     // Get stage with teams and tournament details
     const stage = await this.getStageWithDetails(stageId);
     this.validateStageForScheduling(stage);
+
+    const mergedConfig: FrcSchedulerConfig = {
+      ...config,
+      teamsPerAlliance: config.teamsPerAlliance ?? stage.teamsPerAlliance ?? this.DEFAULT_TEAMS_PER_ALLIANCE,
+    };
+
+    // Set the configuration
+    this.frcScheduler.setConfig(mergedConfig);
     
     return this.frcScheduler.generateFrcSchedule(
       stage,
-      config.rounds.count,
-      config.constraints.minMatchSeparation
+      mergedConfig.rounds.count,
+      mergedConfig.constraints.minMatchSeparation,
+      undefined,
+      undefined,
+      mergedConfig.teamsPerAlliance
     );
   }
     /**
    * Generates a Swiss-style tournament round (Legacy method)
    * @deprecated Use generateMatches with SwissSchedulingOptions instead
    */
-  async generateSwissRound(stageId: string, currentRoundNumber: number, teamsPerAlliance: number = this.DEFAULT_TEAMS_PER_ALLIANCE): Promise<PrismaMatch[]> {
+  async generateSwissRound(stageId: string, currentRoundNumber: number, teamsPerAlliance?: number): Promise<PrismaMatch[]> {
     this.logger.warn('generateSwissRound is deprecated. Use generateMatches with SwissSchedulingOptions instead.');
     
     const options: SwissSchedulingOptions = {
@@ -153,7 +168,7 @@ export class MatchSchedulerService {
    * Generates a playoff tournament bracket (Legacy method)
    * @deprecated Use generateMatches with PlayoffSchedulingOptions instead
    */
-  async generatePlayoffSchedule(stageId: string, numberOfRounds: number, teamsPerAlliance: number = this.DEFAULT_TEAMS_PER_ALLIANCE): Promise<PrismaMatch[]> {
+  async generatePlayoffSchedule(stageId: string, numberOfRounds: number, teamsPerAlliance?: number): Promise<PrismaMatch[]> {
     this.logger.warn('generatePlayoffSchedule is deprecated. Use generateMatches with PlayoffSchedulingOptions instead.');
     
     const options: PlayoffSchedulingOptions = {
@@ -215,6 +230,25 @@ export class MatchSchedulerService {
     if (!stage.tournament) {
       throw new BadRequestException(`Stage "${stage.name}" has no associated tournament`);
     }
+  }
+
+  private resolveTeamsPerAlliance(
+    stage: Stage & { tournament: any },
+    options: SwissSchedulingOptions | FrcSchedulingOptions | PlayoffSchedulingOptions
+  ): number {
+    const optionValue = options && typeof options === 'object'
+      ? (options as { teamsPerAlliance?: number }).teamsPerAlliance
+      : undefined;
+
+    return optionValue ?? stage.teamsPerAlliance ?? this.DEFAULT_TEAMS_PER_ALLIANCE;
+  }
+
+  private applyTeamsPerAlliance<T extends { teamsPerAlliance?: number }>(options: T, teamsPerAlliance: number): T {
+    if (!options || typeof options !== 'object') {
+      return { teamsPerAlliance } as T;
+    }
+
+    return Object.assign({}, options, { teamsPerAlliance }) as T;
   }
 
   // Legacy scheduling methods - to be gradually phased out

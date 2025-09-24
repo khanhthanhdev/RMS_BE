@@ -103,30 +103,46 @@ export class MatchupHistoryService {
       throw new Error(`Expected ${totalTeams} teams for match, got ${matchTeams.length}`);
     }
 
-    // Default assignment: first half red, second half blue
     const defaultRed = matchTeams.slice(0, teamsPerAlliance);
     const defaultBlue = matchTeams.slice(teamsPerAlliance, totalTeams);
-    
+
     let bestRed = defaultRed;
     let bestBlue = defaultBlue;
     let lowestPenalty = this.calculateRepeatMatchupPenalty(defaultRed, defaultBlue, previousOpponents);
 
-    // Try alternative assignments for 4-team matches
-    if (matchTeams.length === 4) {
-      const alternatives = [
-        { red: [matchTeams[0], matchTeams[2]], blue: [matchTeams[1], matchTeams[3]] },
-        { red: [matchTeams[0], matchTeams[3]], blue: [matchTeams[1], matchTeams[2]] }
-      ];
+    const combo: number[] = [];
+    const choose = (start: number): void => {
+      if (combo.length === teamsPerAlliance) {
+        const redIndices = new Set(combo);
+        const redTeams = combo.map(index => matchTeams[index]);
+        const blueTeams = matchTeams.filter((_, idx) => !redIndices.has(idx));
 
-      for (const alt of alternatives) {
-        const penalty = this.calculateRepeatMatchupPenalty(alt.red, alt.blue, previousOpponents);
+        const penalty = this.calculateRepeatMatchupPenalty(redTeams, blueTeams, previousOpponents);
         if (penalty < lowestPenalty) {
           lowestPenalty = penalty;
-          bestRed = alt.red;
-          bestBlue = alt.blue;
+          bestRed = redTeams;
+          bestBlue = blueTeams;
+        }
+
+        return;
+      }
+
+      if (lowestPenalty === 0) {
+        return;
+      }
+
+      for (let i = start; i <= totalTeams - (teamsPerAlliance - combo.length); i++) {
+        combo.push(i);
+        choose(i + 1);
+        combo.pop();
+
+        if (lowestPenalty === 0) {
+          return;
         }
       }
-    }
+    };
+
+    choose(0);
 
     return [bestRed, bestBlue];
   }

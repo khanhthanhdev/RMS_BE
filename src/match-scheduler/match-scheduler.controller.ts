@@ -38,7 +38,7 @@ export class MatchSchedulerController {
         const schedule = await this.matchSchedulerService.generateFrcSchedule(
             data.stageId,
             data.rounds,
-            data.teamsPerAlliance || 2,
+            data.teamsPerAlliance,
             data.minMatchSeparation || 1,
             data.maxIterations,
             data.qualityLevel || 'medium',
@@ -106,7 +106,7 @@ export class MatchSchedulerController {
         const matches = await this.matchSchedulerService.generateSwissRound(
             data.stageId, 
             data.currentRoundNumber,
-            data.teamsPerAlliance || 2
+            data.teamsPerAlliance
         );
         await this.stagesService.broadcastStageBracket(data.stageId);
         
@@ -156,7 +156,7 @@ export class MatchSchedulerController {
         const matches = await this.matchSchedulerService.generatePlayoffSchedule(
             data.stageId, 
             data.numberOfRounds,
-            data.teamsPerAlliance || 2
+            data.teamsPerAlliance
         );
         await this.stagesService.broadcastStageBracket(data.stageId);
         

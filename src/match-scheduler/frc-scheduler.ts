@@ -24,28 +24,32 @@ export class FrcScheduler {
   }
 
   constructor(private readonly prisma: PrismaService) {
-    this.config = { ...DEFAULT_FRC_CONFIG };
+    this.config = this.cloneConfig(DEFAULT_FRC_CONFIG);
   }
 
   /**
    * Set custom configuration for the scheduler
    */
   setConfig(config: Partial<FrcSchedulerConfig>): void {
-    this.config = { ...DEFAULT_FRC_CONFIG, ...config };
+    this.config = this.mergeConfig(DEFAULT_FRC_CONFIG, this.config, config);
   }
 
   /**
    * Load a preset configuration
    */
   loadPreset(preset: keyof typeof PRESET_CONFIGS): void {
-    this.config = { ...PRESET_CONFIGS[preset] };
+    const presetConfig = PRESET_CONFIGS[preset];
+    if (!presetConfig) {
+      throw new Error(`Unknown FRC scheduler preset: ${preset}`);
+    }
+    this.config = this.mergeConfig(DEFAULT_FRC_CONFIG, presetConfig);
   }
 
   /**
    * Get current configuration
    */
   getConfig(): FrcSchedulerConfig {
-    return { ...this.config };
+    return this.cloneConfig(this.config);
   }
 
   /**
@@ -63,11 +67,18 @@ export class FrcScheduler {
     rounds?: number,
     minMatchSeparation?: number,
     maxIterations?: number,
-    qualityLevel?: 'low' | 'medium' | 'high'
+    qualityLevel?: 'low' | 'medium' | 'high',
+    teamsPerAlliance?: number
   ): Promise<PrismaMatch[]> {
     // Override config with provided parameters
     if (rounds !== undefined) {
       this.config.rounds.count = rounds;
+    }
+
+    if (teamsPerAlliance !== undefined) {
+      this.config.teamsPerAlliance = teamsPerAlliance;
+    } else if (stage?.teamsPerAlliance) {
+      this.config.teamsPerAlliance = stage.teamsPerAlliance;
     }
     if (minMatchSeparation !== undefined) {
       this.config.constraints.minMatchSeparation = minMatchSeparation;
@@ -170,6 +181,43 @@ export class FrcScheduler {
       createdMatches.push(dbMatch as any);
     }
     return createdMatches;
+  }
+
+  private cloneConfig(config: FrcSchedulerConfig): FrcSchedulerConfig {
+    return JSON.parse(JSON.stringify(config));
+  }
+
+  private mergeConfig(
+    base: FrcSchedulerConfig,
+    ...configs: Array<Partial<FrcSchedulerConfig> | FrcSchedulerConfig>
+  ): FrcSchedulerConfig {
+    const result = this.cloneConfig(base);
+    for (const config of configs) {
+      this.deepMerge(result as Record<string, any>, config as Record<string, any>);
+    }
+    return result;
+  }
+
+  private deepMerge(target: Record<string, any>, source?: Record<string, any>): void {
+    if (!source) {
+      return;
+    }
+
+    for (const [key, value] of Object.entries(source)) {
+      if (value === undefined) {
+        continue;
+      }
+
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        if (!target[key] || typeof target[key] !== 'object') {
+          target[key] = {};
+        }
+        this.deepMerge(target[key], value as Record<string, any>);
+        continue;
+      }
+
+      target[key] = value;
+    }
   }
 
   private optimizeSchedule(schedule: Schedule, maxIterations: number, minMatchSeparation: number): Schedule {

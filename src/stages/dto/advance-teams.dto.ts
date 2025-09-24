@@ -41,7 +41,10 @@ export const AdvanceTeamsSchema = z.object({
         .number()
         .int()
         .min(1, 'Teams per alliance must be at least 1')
-        .max(10, 'Teams per alliance cannot exceed 10')
+        .max(3, 'Teams per alliance cannot exceed 3')
+        .refine(value => [1, 2, 3].includes(value), {
+          message: 'Teams per alliance must be 1, 2, or 3'
+        })
         .optional()
         .default(2),
     })

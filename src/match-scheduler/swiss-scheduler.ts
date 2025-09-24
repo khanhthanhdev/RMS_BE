@@ -229,7 +229,7 @@ export class SwissScheduler {
    * @param currentRoundNumber The current round number (0-based)
    * @returns Array of created matches
    */
-  async generateSwissRound(stageId: string, currentRoundNumber: number): Promise<PrismaMatch[]> {
+  async generateSwissRound(stageId: string, currentRoundNumber: number, teamsPerAlliance: number = 2): Promise<PrismaMatch[]> {
     // Validate stage exists
     const stage = await this.prisma.stage.findUnique({
       where: { id: stageId },
@@ -256,10 +256,10 @@ export class SwissScheduler {
       await this.updateSwissRankings(stageId);
       // Get rankings again after creating team stats
       const newRankings = await this.getSwissRankings(stageId);
-      return this.createMatches(stageId, newRankings, currentRoundNumber + 1);
+      return this.createMatches(stageId, newRankings, currentRoundNumber + 1, teamsPerAlliance);
     }
 
-    return this.createMatches(stageId, rankings, currentRoundNumber + 1);
+    return this.createMatches(stageId, rankings, currentRoundNumber + 1, teamsPerAlliance);
   }
   /**
    * Creates matches for Swiss tournament based on current rankings
@@ -268,7 +268,12 @@ export class SwissScheduler {
    * @param roundNumber Round number for the new matches
    * @returns Array of created matches
    */
-  private async createMatches(stageId: string, rankings: any[], roundNumber: number): Promise<PrismaMatch[]> {
+  private async createMatches(
+    stageId: string,
+    rankings: any[],
+    roundNumber: number,
+    teamsPerAlliance: number
+  ): Promise<PrismaMatch[]> {
     // Group teams by similar performance (Swiss pairing)
     const matches: PrismaMatch[] = [];
     const usedTeams = new Set<string>();
@@ -303,21 +308,21 @@ export class SwissScheduler {
     console.log(`\nGenerating Swiss matches with closest performance pairing for ${sortedTeams.length} teams`);
 
     // Pair teams with closest performance (Swiss pairing)
-    for (let i = 0; i < sortedTeams.length; i += 4) {
+    const teamsPerMatch = teamsPerAlliance * 2;
+
+    for (let i = 0; i < sortedTeams.length; i += teamsPerMatch) {
       // Get available teams that haven't been paired yet
       const availableTeams = sortedTeams.filter(team => !usedTeams.has(team.teamId));
       
-      if (availableTeams.length < 4) {
+      if (availableTeams.length < teamsPerMatch) {
         console.log(`Only ${availableTeams.length} unpaired teams remaining, stopping match generation`);
         break;
       }
       
-      // Take the first 4 available teams (closest performance)
-      const matchTeams = availableTeams.slice(0, 4);
-      const redTeam1 = matchTeams[0];
-      const redTeam2 = matchTeams[1];
-      const blueTeam1 = matchTeams[2];
-      const blueTeam2 = matchTeams[3];
+      // Take the first set of available teams (closest performance)
+      const matchTeams = availableTeams.slice(0, teamsPerMatch);
+      const redTeams = matchTeams.slice(0, teamsPerAlliance);
+      const blueTeams = matchTeams.slice(teamsPerAlliance, teamsPerMatch);
       const recordBucket = this.getRecordBucket(matchTeams);
 
       const match = await this.prisma.match.create({
@@ -333,19 +338,19 @@ export class SwissScheduler {
               {
                 color: AllianceColor.RED,
                 teamAlliances: {
-                  create: [
-                    { teamId: redTeam1.teamId, stationPosition: 1 },
-                    { teamId: redTeam2.teamId, stationPosition: 2 },
-                  ],
+                  create: redTeams.map((team, idx) => ({
+                    teamId: team.teamId,
+                    stationPosition: idx + 1,
+                  })),
                 },
               },
               {
                 color: AllianceColor.BLUE,
                 teamAlliances: {
-                  create: [
-                    { teamId: blueTeam1.teamId, stationPosition: 1 },
-                    { teamId: blueTeam2.teamId, stationPosition: 2 },
-                  ],
+                  create: blueTeams.map((team, idx) => ({
+                    teamId: team.teamId,
+                    stationPosition: idx + 1,
+                  })),
                 },
               },
             ],
@@ -365,10 +370,8 @@ export class SwissScheduler {
       });
 
       matches.push(match);
-      usedTeams.add(redTeam1.teamId);
-      usedTeams.add(redTeam2.teamId);
-      usedTeams.add(blueTeam1.teamId);
-      usedTeams.add(blueTeam2.teamId);
+      redTeams.forEach(team => usedTeams.add(team.teamId));
+      blueTeams.forEach(team => usedTeams.add(team.teamId));
         // Increment match number for next match
       nextMatchNumber++;
       nextBracketSlot++;

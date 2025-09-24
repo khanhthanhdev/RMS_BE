@@ -14,7 +14,9 @@ export class PlayoffScheduler {
       throw new Error(`Stage with ID ${stage.id} is not a PLAYOFF stage`);
     }
 
-    const numTeamsNeeded = Math.pow(2, numberOfRounds);
+    const teamsPerAlliance = stage.teamsPerAlliance || 2;
+    const alliancesInBracket = Math.pow(2, numberOfRounds);
+    const numTeamsNeeded = alliancesInBracket * teamsPerAlliance;
     const teamStats = await this.prisma.teamStats.findMany({
       where: { tournamentId: stage.tournament.id },
       include: { team: true },
@@ -55,8 +57,8 @@ export class PlayoffScheduler {
       for (let matchIndex = 0; matchIndex < matchesInRound; matchIndex++) {
         const scheduledOffsetMinutes = (createdMatches.length + 1) * slotDurationMinutes;
         const allianceCreate = round === 1
-          ? this.createSeededAlliancePayload(teamStats, matchIndex, numTeamsNeeded)
-          : this.createEmptyAlliancePayload(stage.teamsPerAlliance || 2);
+          ? this.createSeededAlliancePayload(teamStats, matchIndex, teamsPerAlliance, numTeamsNeeded)
+          : this.createEmptyAlliancePayload(teamsPerAlliance);
 
         const match = await this.prisma.match.create({
           data: {
@@ -117,13 +119,19 @@ export class PlayoffScheduler {
     });
   }
 
-  private createSeededAlliancePayload(teamStats: any[], matchIndex: number, numTeamsNeeded: number) {
-    const highSeedIdx = matchIndex;
-    const lowSeedIdx = numTeamsNeeded - 1 - matchIndex;
-    const highSeed = teamStats[highSeedIdx];
-    const lowSeed = teamStats[lowSeedIdx];
+  private createSeededAlliancePayload(
+    teamStats: any[],
+    matchIndex: number,
+    teamsPerAlliance: number,
+    numTeamsNeeded: number
+  ) {
+    const redStart = matchIndex * teamsPerAlliance;
+    const blueStart = numTeamsNeeded - teamsPerAlliance * (matchIndex + 1);
 
-    if (!highSeed || !lowSeed) {
+    const redSeeds = teamStats.slice(redStart, redStart + teamsPerAlliance);
+    const blueSeeds = teamStats.slice(blueStart, blueStart + teamsPerAlliance);
+
+    if (redSeeds.length < teamsPerAlliance || blueSeeds.length < teamsPerAlliance) {
       throw new Error(`Unable to determine playoff seeds for match index ${matchIndex}`);
     }
 
@@ -132,13 +140,19 @@ export class PlayoffScheduler {
         {
           color: AllianceColor.RED,
           teamAlliances: {
-            create: [{ teamId: highSeed.teamId, stationPosition: 1 }]
+            create: redSeeds.map((seed: any, idx: number) => ({
+              teamId: seed.teamId,
+              stationPosition: idx + 1,
+            }))
           }
         },
         {
           color: AllianceColor.BLUE,
           teamAlliances: {
-            create: [{ teamId: lowSeed.teamId, stationPosition: 1 }]
+            create: blueSeeds.map((seed: any, idx: number) => ({
+              teamId: seed.teamId,
+              stationPosition: idx + 1,
+            }))
           }
         }
       ]
@@ -148,8 +162,14 @@ export class PlayoffScheduler {
   private createEmptyAlliancePayload(_teamsPerAlliance: number) {
     return {
       create: [
-        { color: AllianceColor.RED, teamAlliances: { create: [] } },
-        { color: AllianceColor.BLUE, teamAlliances: { create: [] } }
+        {
+          color: AllianceColor.RED,
+          teamAlliances: { create: [] }
+        },
+        {
+          color: AllianceColor.BLUE,
+          teamAlliances: { create: [] }
+        }
       ]
     };
   }

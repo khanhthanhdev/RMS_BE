@@ -27,22 +27,20 @@ export class FrcSchedulingStrategy implements ISchedulingStrategy {
   ): Promise<Match[]> {
     const {
       rounds,
-      teamsPerAlliance = this.DEFAULT_TEAMS_PER_ALLIANCE,
       minMatchSeparation = 1,
       maxIterations,
       qualityLevel = 'medium'
     } = options;
 
-    if (teamsPerAlliance !== this.DEFAULT_TEAMS_PER_ALLIANCE) {
-      console.warn(`Requested ${teamsPerAlliance} teams per alliance, but currently only ${this.DEFAULT_TEAMS_PER_ALLIANCE} is supported.`);
-    }
+    const effectiveTeamsPerAlliance = options.teamsPerAlliance ?? stage.teamsPerAlliance ?? this.DEFAULT_TEAMS_PER_ALLIANCE;
 
     return this.frcScheduler.generateFrcSchedule(
       stage,
       rounds,
       minMatchSeparation,
       maxIterations,
-      qualityLevel
+      qualityLevel,
+      effectiveTeamsPerAlliance
     );
   }
 }

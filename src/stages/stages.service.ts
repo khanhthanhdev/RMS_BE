@@ -46,6 +46,7 @@ export class StagesService {
         tournamentId: createStageDto.tournamentId,
         maxTeams: createStageDto.maxTeams,
         isElimination: createStageDto.isElimination,
+        teamsPerAlliance: createStageDto.teamsPerAlliance,
         advancementRules: createStageDto.advancementRules,
       },
     });
@@ -164,6 +165,10 @@ export class StagesService {
 
     if (updateStageDto.isElimination !== undefined) {
       data.isElimination = updateStageDto.isElimination;
+    }
+
+    if (updateStageDto.teamsPerAlliance !== undefined) {
+      data.teamsPerAlliance = updateStageDto.teamsPerAlliance;
     }
 
     if (updateStageDto.advancementRules !== undefined) {
@@ -297,6 +302,7 @@ export class StagesService {
       stageName: stage.name,
       tournamentId: stage.tournament.id,
       stageType: stage.type,
+      teamsPerAlliance: stage.teamsPerAlliance,
       generatedAt: new Date().toISOString(),
       matches: normalizedMatches,
       structure,

@@ -13,7 +13,7 @@ import {
   Logger,
   HttpStatus,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Response, CookieOptions } from 'express';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../utils/prisma-types';
@@ -32,10 +32,111 @@ import { ResendVerificationDto } from './dto/resend-verification.dto';
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
+  private readonly cookieName = process.env.AUTH_COOKIE_NAME || 'token';
+  private readonly cookieLogger = new Logger('AuthCookieConfig');
+
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
   ) {}
+
+  private parseBooleanEnv(value?: string | null): boolean | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['false', '0', 'no', 'off'].includes(normalized)) {
+      return false;
+    }
+
+    return undefined;
+  }
+
+  private resolveCookieSameSite(): CookieOptions['sameSite'] {
+    const configured = process.env.COOKIE_SAME_SITE?.trim().toLowerCase();
+    if (configured === 'none' || configured === 'lax' || configured === 'strict') {
+      return configured as CookieOptions['sameSite'];
+    }
+
+    return process.env.NODE_ENV === 'production' ? 'none' : 'strict';
+  }
+
+  private resolveCookieSecure(sameSite: CookieOptions['sameSite']): boolean {
+    const explicit = this.parseBooleanEnv(process.env.COOKIE_SECURE);
+    if (sameSite === 'none') {
+      if (explicit === false) {
+        this.cookieLogger.warn(
+          'SameSite=None requires secure cookies; overriding COOKIE_SECURE=false to true.',
+        );
+      } else if (explicit !== true && process.env.NODE_ENV !== 'production') {
+        this.cookieLogger.warn(
+          'SameSite=None requires secure cookies; enabling secure flag automatically.',
+        );
+      }
+      return true;
+    }
+
+    if (typeof explicit === 'boolean') {
+      return explicit;
+    }
+
+    return process.env.NODE_ENV === 'production';
+  }
+
+  private resolveCookieDomain(): string | undefined {
+    const domain = process.env.COOKIE_DOMAIN?.trim();
+    return domain?.length ? domain : undefined;
+  }
+
+  private resolveCookieMaxAge(): number {
+    const configured = process.env.COOKIE_MAX_AGE_MS;
+    if (!configured) {
+      return 24 * 60 * 60 * 1000; // 24 hours default
+    }
+
+    const parsed = parseInt(configured, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+
+    this.cookieLogger.warn(
+      `Invalid COOKIE_MAX_AGE_MS value "${configured}". Falling back to default (24h).`,
+    );
+    return 24 * 60 * 60 * 1000;
+  }
+
+  private getCookieOptions(): CookieOptions {
+    const sameSite = this.resolveCookieSameSite();
+    const secure = this.resolveCookieSecure(sameSite);
+    const domain = this.resolveCookieDomain();
+    const maxAge = this.resolveCookieMaxAge();
+
+    const options: CookieOptions = {
+      httpOnly: true,
+      secure,
+      sameSite,
+      maxAge,
+    };
+
+    if (domain) {
+      options.domain = domain;
+    }
+
+    this.cookieLogger.log(
+      `Cookie options resolved: ${JSON.stringify({
+        secure: options.secure,
+        sameSite: options.sameSite,
+        maxAge: options.maxAge,
+        domain: options.domain,
+      })}`,
+    );
+
+    return options;
+  }
   @Post('register')
   @Throttle({ default: { limit: 3, ttl: 60000 } }) // 3 attempts per minute
   @HttpCode(HttpStatus.CREATED)
@@ -78,22 +179,9 @@ export class AuthController {
     );
     const { access_token, user: userInfo } = await this.authService.login(user);
 
-    // Set JWT as HTTP-only cookie with production-safe settings
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite:
-        process.env.NODE_ENV === 'production'
-          ? ('none' as const)
-          : ('strict' as const),
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      // Don't set domain for cross-origin requests unless specifically needed
-      // ...(process.env.NODE_ENV === 'production' && {
-      //   domain: process.env.COOKIE_DOMAIN || undefined
-      // })
-    };
-
-    res.cookie('token', access_token, cookieOptions);
+    // Set JWT as HTTP-only cookie with environment-aware settings
+    const cookieOptions = this.getCookieOptions();
+    res.cookie(this.cookieName, access_token, cookieOptions);
 
     this.logger.log(`User logged in: ${userInfo.username}`);
 
@@ -106,18 +194,8 @@ export class AuthController {
   }
   @Post('logout')
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie('token', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite:
-        process.env.NODE_ENV === 'production'
-          ? ('none' as const)
-          : ('strict' as const),
-      // Don't set domain for cross-origin requests unless specifically needed
-      // ...(process.env.NODE_ENV === 'production' && {
-      //   domain: process.env.COOKIE_DOMAIN || undefined
-      // })
-    });
+    const cookieOptions = this.getCookieOptions();
+    res.clearCookie(this.cookieName, cookieOptions);
     return { message: 'Logged out successfully' };
   }
 
@@ -312,7 +390,7 @@ export class AuthController {
   readCookies(@Request() req) {
     return {
       allCookies: req.cookies,
-      tokenCookie: req.cookies.token,
+      tokenCookie: req.cookies[this.cookieName],
       testCookies: {
         strict: req.cookies['test-token-strict'],
         none: req.cookies['test-token-none'],
@@ -354,20 +432,9 @@ export class AuthController {
       };
 
       // Set JWT as HTTP-only cookie with detailed logging
-      const cookieOptions = {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite:
-          process.env.NODE_ENV === 'production'
-            ? ('none' as const)
-            : ('strict' as const),
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        ...(process.env.NODE_ENV === 'production' && {
-          domain: process.env.COOKIE_DOMAIN || undefined,
-        }),
-      };
+      const cookieOptions = this.getCookieOptions();
 
-      res.cookie('token', access_token, cookieOptions);
+      res.cookie(this.cookieName, access_token, cookieOptions);
 
       this.logger.log(`[LOGIN DEBUG] User logged in: ${userInfo.username}`);
       this.logger.log(

@@ -33,12 +33,13 @@ export class SwissSchedulingStrategy implements ISchedulingStrategy {
     stage: Stage & { tournament: any; teams: Team[] },
     options: SwissSchedulingOptions
   ): Promise<Match[]> {
-    const { currentRoundNumber, teamsPerAlliance = this.DEFAULT_TEAMS_PER_ALLIANCE } = options;
+    const { currentRoundNumber } = options;
+    const teamsPerAlliance = options.teamsPerAlliance ?? stage.teamsPerAlliance ?? this.DEFAULT_TEAMS_PER_ALLIANCE;
     const teamsPerMatch = teamsPerAlliance * 2; // 2 alliances per match
 
     // Validate that we support this alliance size
-    if (teamsPerAlliance < 1 || teamsPerAlliance > 3) {
-      throw new Error(`Swiss strategy supports 1-3 teams per alliance, got ${teamsPerAlliance}`);
+    if (teamsPerAlliance < 1 || teamsPerAlliance > 6) {
+      throw new Error(`Swiss strategy supports 1-6 teams per alliance, got ${teamsPerAlliance}`);
     }
 
     // Validate fields

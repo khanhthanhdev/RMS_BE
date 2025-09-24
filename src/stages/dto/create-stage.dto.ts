@@ -15,6 +15,15 @@ export const CreateStageSchema = z.object({
   tournamentId: z.string().uuid('Tournament ID must be a valid UUID'),
   maxTeams: z.number().int().positive('Max teams must be a positive integer').optional(),
   isElimination: z.boolean().default(false),
+  teamsPerAlliance: z
+    .number()
+    .int()
+    .min(1, 'Teams per alliance must be at least 1')
+    .max(3, 'Teams per alliance cannot exceed 3')
+    .refine(value => [1, 2, 3].includes(value), {
+      message: 'Teams per alliance must be 1, 2, or 3',
+    })
+    .default(2),
   advancementRules: z.string().optional(),
 }).refine(data => {
   const validation = validateHierarchicalDateRange(
