@@ -16,7 +16,7 @@ model User {
   name                      String
   dateOfBirth               DateTime?
   email                     String         @unique
-  phoneNumber               String         @unique
+  phoneNumber               String?
   gender                    Gender?
   isActive                  Boolean        @default(true) // Account status
   lastLoginAt               DateTime? // Track last login

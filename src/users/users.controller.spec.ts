@@ -26,7 +26,7 @@ describe('UsersController', () => {
       username: 'testuser',
       role: UserRole.TEAM_LEADER,
       email: 'test@example.com',
-      phoneNumber: '', // Changed from null to empty string to match expected type
+      phoneNumber: null, // Optional field, set to null when not provided
       gender: null,
       dateOfBirth: null,
       isActive: true,

@@ -1,5 +1,5 @@
-# Production-Ready Multi-stage Dockerfile for NestJS Backend
 
+# Production-Ready Multi-stage Dockerfile for NestJS Backend
 # Build arguments
 ARG NODE_VERSION=20
 ARG ALPINE_VERSION=3.18
@@ -20,7 +20,7 @@ WORKDIR /app
 FROM base AS deps
 
 # Copy package files
-COPY package.json package-lock.json* pnpm-lock.yaml* ./ 
+COPY package.json package-lock.json* pnpm-lock.yaml* ./
 
 # Install production dependencies only
 RUN \
@@ -40,7 +40,7 @@ RUN npm cache clean --force
 FROM base AS build-deps
 
 # Copy package files
-COPY package.json package-lock.json* pnpm-lock.yaml* ./ 
+COPY package.json package-lock.json* pnpm-lock.yaml* ./
 
 # Install all dependencies (including dev dependencies)
 RUN \
@@ -57,20 +57,20 @@ RUN \
 FROM base AS builder
 
 # Copy package.json first (required for npm commands)
-COPY package.json package-lock.json* pnpm-lock.yaml* ./ 
+COPY package.json package-lock.json* pnpm-lock.yaml* ./
 
 # Copy all dependencies from build-deps
 COPY --from=build-deps /app/node_modules ./node_modules
 
 # Copy source files in order of change frequency
-COPY tsconfig*.json ./ 
-COPY nest-cli.json ./ 
-COPY prisma/ ./prisma/ 
+COPY tsconfig*.json ./
+COPY nest-cli.json ./
+COPY prisma/ ./prisma/
 
 # Copy source code
 COPY src/ ./src/
 
-# Build-time environment variables (only non-sensitive variables)
+# Build-time environment (only non-sensitive variables)
 ARG DATABASE_URL
 ARG NODE_ENV=production
 
@@ -113,7 +113,7 @@ RUN addgroup --system --gid 1001 nestjs && \
 
 WORKDIR /app
 
-# Set production environment (adjust as needed)
+# Set production environment
 ENV NODE_ENV=production
 ENV NODE_OPTIONS="--max-old-space-size=1024"
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false

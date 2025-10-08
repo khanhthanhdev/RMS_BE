@@ -274,6 +274,27 @@ export class SwissScheduler {
     roundNumber: number,
     teamsPerAlliance: number
   ): Promise<PrismaMatch[]> {
+    // Get the stage with tournament info to access fields
+    const stage = await this.prisma.stage.findUnique({
+      where: { id: stageId },
+      include: {
+        tournament: {
+          include: {
+            fields: true,
+          },
+        },
+      },
+    });
+
+    if (!stage) {
+      throw new Error(`Stage with ID ${stageId} not found`);
+    }
+
+    const fields = stage.tournament.fields;
+    if (fields.length === 0) {
+      throw new Error('No fields available for match assignment');
+    }
+
     // Group teams by similar performance (Swiss pairing)
     const matches: PrismaMatch[] = [];
     const usedTeams = new Set<string>();
@@ -325,6 +346,10 @@ export class SwissScheduler {
       const blueTeams = matchTeams.slice(teamsPerAlliance, teamsPerMatch);
       const recordBucket = this.getRecordBucket(matchTeams);
 
+      // Assign field in round-robin fashion
+      const fieldIndex = matches.length % fields.length;
+      const assignedField = fields[fieldIndex];
+
       const match = await this.prisma.match.create({
         data: {
           stageId,
@@ -333,6 +358,7 @@ export class SwissScheduler {
           status: MatchState.PENDING,
           bracketSlot: nextBracketSlot,
           recordBucket,
+          fieldId: assignedField.id,
           alliances: {
             create: [
               {

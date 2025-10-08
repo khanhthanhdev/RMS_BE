@@ -21,7 +21,6 @@ async function ensureAdmin() {
     update: {
       name: 'Bracket Admin',
       email: 'bracket-admin@example.com',
-      phoneNumber: '+19990000000',
       updatedAt: now,
     },
     create: {
@@ -30,7 +29,6 @@ async function ensureAdmin() {
       role: UserRole.ADMIN,
       name: 'Bracket Admin',
       email: 'bracket-admin@example.com',
-      phoneNumber: '+19990000000',
       gender: 'OTHER',
       isActive: true,
       emailVerified: true,
@@ -53,7 +51,6 @@ async function upsertTeams(
       where: { username: `${prefix}.team.owner.${i}` },
       update: {
         email,
-        phoneNumber,
       },
       create: {
         username: `${prefix}.team.owner.${i}`,
@@ -61,7 +58,6 @@ async function upsertTeams(
         role: UserRole.TEAM_LEADER,
         name: `${prefix.toUpperCase()} Team Owner ${i}`,
         email,
-        phoneNumber,
         gender: 'OTHER',
         isActive: true,
       },

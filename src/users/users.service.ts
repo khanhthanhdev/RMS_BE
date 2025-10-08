@@ -40,10 +40,13 @@ export class UsersService {
         password: hashedPassword,
         role: createUserDto.role || UserRole.COMMON,
         email: createUserDto.email,
-        phoneNumber: createUserDto.phoneNumber ?? '',
         gender: createUserDto.gender,
         dateOfBirth: createUserDto.dateOfBirth,
       };
+
+      if (createUserDto.phoneNumber) {
+        userData.phoneNumber = createUserDto.phoneNumber;
+      }
 
       if (createUserDto.createdById) {
         userData.createdBy = { connect: { id: createUserDto.createdById } };

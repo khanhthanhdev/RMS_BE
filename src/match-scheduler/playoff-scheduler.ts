@@ -14,9 +14,8 @@ export class PlayoffScheduler {
       throw new Error(`Stage with ID ${stage.id} is not a PLAYOFF stage`);
     }
 
-    const teamsPerAlliance = stage.teamsPerAlliance || 2;
-    const alliancesInBracket = Math.pow(2, numberOfRounds);
-    const numTeamsNeeded = alliancesInBracket * teamsPerAlliance;
+    const teamsPerAlliance = stage.teamsPerAlliance || 1;
+    const numTeamsNeeded = Math.pow(2, numberOfRounds);
     const teamStats = await this.prisma.teamStats.findMany({
       where: { tournamentId: stage.tournament.id },
       include: { team: true },
@@ -29,6 +28,16 @@ export class PlayoffScheduler {
 
     if (teamStats.length < numTeamsNeeded) {
       throw new Error(`Not enough teams with stats for a ${numberOfRounds}-round playoff. Need ${numTeamsNeeded} teams, got ${teamStats.length}`);
+    }
+
+    // Get available fields for match assignment
+    const fields = await this.prisma.field.findMany({
+      where: { tournamentId: stage.tournament.id },
+      orderBy: { number: 'asc' },
+    });
+
+    if (fields.length === 0) {
+      throw new Error('No fields available for playoff match assignment');
     }
 
     const lastMatchNumber = await this.prisma.match.findFirst({
@@ -60,6 +69,10 @@ export class PlayoffScheduler {
           ? this.createSeededAlliancePayload(teamStats, matchIndex, teamsPerAlliance, numTeamsNeeded)
           : this.createEmptyAlliancePayload(teamsPerAlliance);
 
+        // Assign field in round-robin fashion
+        const fieldIndex = createdMatches.length % fields.length;
+        const assignedField = fields[fieldIndex];
+
         const match = await this.prisma.match.create({
           data: {
             stageId: stage.id,
@@ -68,6 +81,7 @@ export class PlayoffScheduler {
             status: MatchState.PENDING,
             scheduledTime: new Date(kickoffTime + scheduledOffsetMinutes * 60 * 1000),
             bracketSlot: nextBracketSlot,
+            fieldId: assignedField.id,
             alliances: allianceCreate
           },
           include: {
@@ -125,13 +139,16 @@ export class PlayoffScheduler {
     teamsPerAlliance: number,
     numTeamsNeeded: number
   ) {
-    const redStart = matchIndex * teamsPerAlliance;
-    const blueStart = numTeamsNeeded - teamsPerAlliance * (matchIndex + 1);
+    // For playoff seeding with 4 teams, use standard bracket seeding:
+    // Match 0: 1st vs 4th, Match 1: 2nd vs 3rd
+    const seedOrder = [0, 3, 1, 2]; // 1st, 4th, 2nd, 3rd
+    const redSeedIndex = seedOrder[matchIndex * 2];
+    const blueSeedIndex = seedOrder[matchIndex * 2 + 1];
 
-    const redSeeds = teamStats.slice(redStart, redStart + teamsPerAlliance);
-    const blueSeeds = teamStats.slice(blueStart, blueStart + teamsPerAlliance);
+    const redSeeds = [teamStats[redSeedIndex]];
+    const blueSeeds = [teamStats[blueSeedIndex]];
 
-    if (redSeeds.length < teamsPerAlliance || blueSeeds.length < teamsPerAlliance) {
+    if (!redSeeds[0] || !blueSeeds[0]) {
       throw new Error(`Unable to determine playoff seeds for match index ${matchIndex}`);
     }
 

@@ -73,15 +73,21 @@ export class AuthService {
 
   async register(registerDto: RegisterDto): Promise<any> {
     try {
+      // Build the OR conditions dynamically, only including phoneNumber if provided
+      const orConditions: any[] = [
+        { username: registerDto.username },
+        { email: registerDto.email },
+        { name: registerDto.name },
+      ];
+
+      if (registerDto.phoneNumber) {
+        orConditions.push({ phoneNumber: registerDto.phoneNumber });
+      }
+
       // Check for existing username, email, name, or phoneNumber with generic error
       const existingUser = await this.prisma.user.findFirst({
         where: {
-          OR: [
-            { username: registerDto.username },
-            { email: registerDto.email },
-            { name: registerDto.name },
-            { phoneNumber: registerDto.phoneNumber },
-          ],
+          OR: orConditions,
         },
       });
 

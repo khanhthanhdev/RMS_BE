@@ -30,7 +30,6 @@ async function ensureAdmin() {
     update: {
       name: 'Sample Admin',
       email: 'sample-admin@example.com',
-      phoneNumber: '+19990000001',
       updatedAt: now,
     },
     create: {
@@ -39,7 +38,6 @@ async function ensureAdmin() {
       role: UserRole.ADMIN,
       name: 'Sample Admin',
       email: 'sample-admin@example.com',
-      phoneNumber: '+19990000001',
       gender: 'OTHER',
       isActive: true,
       emailVerified: true,
@@ -57,7 +55,6 @@ async function upsertTeams(tournamentId: string) {
       where: { username: `${config.id}-owner` },
       update: {
         email: `${config.id}@example.com`,
-        phoneNumber: `+1999000${config.id.slice(-1)}01`,
       },
       create: {
         username: `${config.id}-owner`,
@@ -65,7 +62,6 @@ async function upsertTeams(tournamentId: string) {
         role: UserRole.TEAM_LEADER,
         name: `${config.name} Owner`,
         email: `${config.id}@example.com`,
-        phoneNumber: `+1999000${config.id.slice(-1)}01`,
         gender: 'OTHER',
         isActive: true,
       },

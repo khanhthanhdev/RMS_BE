@@ -86,6 +86,13 @@ interface JoinRoomData {
   tournamentId: string;
 }
 
+interface WinnerBadgeUpdate {
+  matchId: string;
+  showWinnerBadge: boolean;
+  tournamentId: string;
+  fieldId?: string;
+}
+
 @WebSocketGateway({
   cors: {
     origin: '*', // In production, specify your frontend URL
@@ -109,6 +116,7 @@ export class EventsGateway
   private latestRealtimeScores: Map<string, ScoreUpdateDto> = new Map();
   private latestMatchStates: Map<string, MatchStateData> = new Map();
   private latestTimerStates: Map<string, TimerData> = new Map();
+  private latestWinnerBadgeUpdates: Map<string, WinnerBadgeUpdate> = new Map();
 
   // Store active timers per tournament
   private activeTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -195,6 +203,7 @@ export class EventsGateway
       tryEmit('scoreUpdateRealtime', this.latestRealtimeScores.get(key));
       tryEmit('match_state_change', this.latestMatchStates.get(key));
       tryEmit('timer_update', this.latestTimerStates.get(key));
+      tryEmit('winner_badge_update', this.latestWinnerBadgeUpdates.get(key));
     }
   }
 
@@ -535,6 +544,35 @@ export class EventsGateway
       }
     } else if (payload.tournamentId) {
       client.to(payload.tournamentId).emit('match_state_change', payload);
+    }
+  }
+
+  // Handle winner badge updates (control panel -> audience display)
+  @SubscribeMessage('winner_badge_update')
+  handleWinnerBadgeUpdate(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: WinnerBadgeUpdate
+  ): void {
+    this.logger.log(`Winner badge update received: ${JSON.stringify(payload)}`);
+
+    if (!payload || !payload.matchId || typeof payload.showWinnerBadge !== 'boolean') {
+      this.logger.warn('Invalid winner badge update payload received');
+      return;
+    }
+
+    // Cache latest winner badge state for reconnection handling
+    this.cacheState(this.latestWinnerBadgeUpdates, payload);
+
+    if (payload.fieldId) {
+      this.emitToField(payload.fieldId, 'winner_badge_update', payload);
+
+      if (payload.tournamentId) {
+        this.server.to(payload.tournamentId).emit('winner_badge_update', payload);
+      }
+    } else if (payload.tournamentId) {
+      this.server.to(payload.tournamentId).emit('winner_badge_update', payload);
+    } else {
+      this.server.emit('winner_badge_update', payload);
     }
   }
   
