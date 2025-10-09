@@ -305,7 +305,7 @@ describe('TournamentsService', () => {
           {
             id: 's1',
             name: 'Qualification',
-            stageType: 'QUALIFICATION',
+            stageType: 'SWISS',
             status: 'PENDING',
             _count: { matches: 5 },
           },

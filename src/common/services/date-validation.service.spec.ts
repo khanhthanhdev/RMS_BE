@@ -25,9 +25,9 @@ describe('DateValidationService', () => {
 
   const mockStage = {
     id: 'stage-1',
-    name: 'Qualification',
+    name: 'Swiss Round',
     description: null,
-    type: 'QUALIFICATION' as any,
+    type: 'SWISS' as any,
     status: 'ACTIVE' as any,
     startDate: new Date('2024-06-01T10:00:00Z'),
     endDate: new Date('2024-06-02T17:00:00Z'),
@@ -54,7 +54,7 @@ describe('DateValidationService', () => {
     fieldId: null,
     fieldNumber: null,
     scoredById: null,
-    matchType: 'QUALIFICATION' as any,
+    matchType: 'SWISS' as any,
     matchDuration: null,
     winningAlliance: null,
     roundType: null,

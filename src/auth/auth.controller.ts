@@ -202,12 +202,8 @@ export class AuthController {
   @Get('init-admin')
   @HttpCode(201)
   async initializeAdmin() {
-    const admin = await this.authService.createDefaultAdmin();
-    if ('role' in admin && 'username' in admin) {
-      return admin;
-    }
-    // If only message is returned, still return 201 for idempotency
-    return admin;
+    // Temporarily disabled
+    return { message: 'Admin initialization endpoint is temporarily disabled' };
   }
 
   @Get('check-auth')
@@ -290,39 +286,8 @@ export class AuthController {
   @Get('force-recreate-admin')
   @HttpCode(201)
   async forceRecreateAdmin() {
-    try {
-      const adminUsername = process.env.ADMIN_USERNAME || 'admin';
-      const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-
-      // Delete existing admin user if exists
-      await this.authService['prisma'].user.deleteMany({
-        where: { username: adminUsername },
-      });
-
-      // Create new admin user with proper password hash
-      const bcrypt = require('bcrypt');
-      const hashedPassword = await bcrypt.hash(adminPassword, 10);
-
-      const newAdmin = await this.authService.createDefaultAdmin();
-
-      // Test the new password immediately
-      const passwordTest = await bcrypt.compare(adminPassword, hashedPassword);
-
-      return {
-        success: true,
-        message: 'Admin user recreated successfully',
-        user: newAdmin,
-        passwordTest: {
-          expectedPassword: adminPassword,
-          passwordMatch: passwordTest,
-        },
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
+    // Temporarily disabled
+    return { message: 'Force recreate admin endpoint is temporarily disabled' };
   }
 
   @Get('debug-env')
