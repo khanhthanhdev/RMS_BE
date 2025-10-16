@@ -38,12 +38,12 @@ export class TeamsController {
     return this.teamsService.createBulkTeams(createBulkTeamsDto);
   }
 
-  /*@Post('import')
+  @Post('import')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   importTeams(@Body() importTeamsDto: ImportTeamsDto) {
     return this.teamsService.importTeams(importTeamsDto);
-  }*/
+  }
 
   @Get()
   findAll(@Query('tournamentId') tournamentId?: string) {

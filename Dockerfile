@@ -11,11 +11,11 @@ COPY package.json package-lock.json* pnpm-lock.yaml* ./
 
 # Install dependencies with npm ci for faster, reliable builds
 RUN if [ -f pnpm-lock.yaml ]; then \
-      corepack enable && pnpm install --frozen-lockfile; \
+  corepack enable && pnpm install --frozen-lockfile; \
     elif [ -f package-lock.json ]; then \
-      npm ci; \
+  npm ci --legacy-peer-deps; \
     else \
-      npm install; \
+  npm install --legacy-peer-deps; \
     fi
 
 # Copy source code and configuration

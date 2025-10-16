@@ -423,66 +423,163 @@ export class TeamsService {
   }
 
   /**
-   * Import multiple teams from CSV content or copy-pasted text
+   * Import multiple teams from CSV content for quick team creation
+   * CSV format: Team Name,Email,Number of member,School/Organization,Location
    */
-  /*async importTeams(importTeamsDto: ImportTeamsDto) {
+  async importTeams(importTeamsDto: ImportTeamsDto) {
     const {
       content,
-      format,
-      hasHeader = false,
+      hasHeader = true,
       delimiter = ',',
       tournamentId,
     } = importTeamsDto;
+
     try {
       const lines = content.split(/\r?\n/).filter((line) => line.trim() !== '');
       const dataLines = hasHeader ? lines.slice(1) : lines;
+
       if (dataLines.length === 0) {
         throw new BadRequestException('No team data found in the content');
       }
-      const teamsToCreate: TeamData[] = dataLines.map((line) => {
-        const parts = line.split(delimiter).map((part) => part.trim());
-        if (!parts[0]) {
-          throw new BadRequestException(
-            `Invalid line format: ${line}. Expected at least team name`,
-          );
-        }
-        return {
-          name: parts[0],
-          organization:
-            parts[1] !== undefined && parts[1] !== '' ? parts[1] : undefined,
-          description:
-            parts[2] !== undefined && parts[2] !== '' ? parts[2] : undefined,
-        };
+
+      // Verify tournament exists
+      const tournament = await this.prisma.tournament.findUnique({
+        where: { id: tournamentId },
+        select: { id: true, name: true },
       });
-      const createdTeams: any[] = [];
-      for (const teamData of teamsToCreate) {
+
+      if (!tournament) {
+        throw new BadRequestException(`Tournament with ID ${tournamentId} not found`);
+      }
+
+      // Get an admin user to assign as team owner
+      const adminUser = await this.prisma.user.findFirst({
+        where: { role: 'ADMIN' }
+      });
+
+      if (!adminUser) {
+        throw new BadRequestException('No admin user found to assign as team owner');
+      }
+
+      const teamsToCreate: any[] = [];
+      const errors: string[] = [];
+
+      for (let i = 0; i < dataLines.length; i++) {
+        const line = dataLines[i];
+        const lineNumber = hasHeader ? i + 2 : i + 1; // Account for header row
+
         try {
-          const teamNumber = await this.generateNextTeamNumber();
-          await this.ensureTeamNumberUnique(teamNumber);
-          const team = await this.prisma.team.create({
-            data: {
-              teamNumber,
-              name: teamData.name,
-              description: teamData.description,
-              tournamentId: tournamentId,
-            },
-            include: { tournament: true },
+          const parts = line.split(delimiter).map((part) => part.trim());
+
+          if (parts.length < 5) {
+            errors.push(`Line ${lineNumber}: Expected 5 columns, got ${parts.length}`);
+            continue;
+          }
+
+          const [teamName, email, numberOfMembersStr, schoolOrganization, location] = parts;
+
+          // Validate required fields
+          if (!teamName) {
+            errors.push(`Line ${lineNumber}: Team name is required`);
+            continue;
+          }
+
+          const numberOfMembers = parseInt(numberOfMembersStr, 10);
+          if (isNaN(numberOfMembers) || numberOfMembers < 1) {
+            errors.push(`Line ${lineNumber}: Number of members must be a positive integer`);
+            continue;
+          }
+
+          // Validate email if provided
+          if (email && !/\S+@\S+\.\S+/.test(email)) {
+            errors.push(`Line ${lineNumber}: Invalid email format`);
+            continue;
+          }
+
+          teamsToCreate.push({
+            teamName,
+            email,
+            numberOfMembers,
+            schoolOrganization,
+            location,
+            lineNumber,
           });
-          createdTeams.push(team);
+
         } catch (error) {
-          console.error(`Error creating team ${teamData.name}:`, error);
+          errors.push(`Line ${lineNumber}: ${error.message}`);
         }
       }
-      return {
-        success: true,
-        message: `Successfully imported ${createdTeams.length} teams`,
+
+      if (teamsToCreate.length === 0) {
+        throw new BadRequestException(`No valid teams to import. Errors: ${errors.join('; ')}`);
+      }
+
+      const createdTeams: any[] = [];
+      const creationErrors: string[] = [];
+
+      for (const teamData of teamsToCreate) {
+        try {
+          // Create team members based on numberOfMembers
+          const teamMembers: any[] = [];
+          for (let i = 1; i <= teamData.numberOfMembers; i++) {
+            // Create dummy team member data
+            const memberName = i === 1 && teamData.email
+              ? `Team Leader ${teamData.teamName}`
+              : `Member ${i} - ${teamData.teamName}`;
+
+            teamMembers.push({
+              name: memberName,
+              email: i === 1 ? teamData.email : undefined, // Only first member gets the email
+              phoneNumber: undefined,
+              gender: i % 2 === 0 ? 'MALE' : 'FEMALE', // Alternate genders for variety
+              province: teamData.location || 'Unknown',
+              ward: 'Default Ward',
+              organization: teamData.schoolOrganization || 'Unknown Organization',
+              organizationAddress: teamData.location || 'Unknown Address',
+            });
+          }
+
+          // Create team using the normal registration process
+          const createTeamDto: CreateTeamDto = {
+            name: teamData.teamName,
+            userId: adminUser.id,
+            tournamentId: tournamentId,
+            referralSource: 'CSV Import',
+            teamMembers: teamMembers,
+          };
+
+          const createdTeam = await this.createTeam(createTeamDto);
+
+          createdTeams.push({
+            ...createdTeam,
+            teamMemberCount: createdTeam.teamMembers?.length || 0,
+          });
+
+        } catch (error) {
+          creationErrors.push(`Team "${teamData.teamName}" (line ${teamData.lineNumber}): ${error.message}`);
+        }
+      }
+
+      const result = {
+        success: creationErrors.length === 0,
+        message: `Successfully imported ${createdTeams.length} teams${creationErrors.length > 0 ? ` with ${creationErrors.length} errors` : ''}`,
         teams: createdTeams,
+        totalParsed: teamsToCreate.length,
+        totalCreated: createdTeams.length,
+        errors: [...errors, ...creationErrors],
       };
+
+      if (creationErrors.length > 0) {
+        result.message += `. Errors: ${creationErrors.join('; ')}`;
+      }
+
+      return result;
+
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
       throw new BadRequestException(`Failed to import teams: ${error.message}`);
     }
-  }*/
+  }
 
   /**
    * Create multiple teams with random data for testing purposes (ADMIN only)

@@ -273,9 +273,18 @@ export class EventsGateway
     this.logger.log(`Client disconnected: ${client.id}`);
   }
   
+  @SubscribeMessage('join_room')
+  handleJoinRoom(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { room: string }
+  ): void {
+    client.join(data.room);
+    this.logger.log(`Client ${client.id} joined room: ${data.room}`);
+  }
+
   // Join a tournament room
   @SubscribeMessage('join_tournament')
-  handleJoinRoom(
+  handleJoinTournamentRoom(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: JoinRoomData
   ): void {
@@ -308,20 +317,42 @@ export class EventsGateway
     // Cache the latest match update for resynchronization
     this.cacheState(this.latestMatchUpdates, payload);
 
-    if (payload.fieldId) {
-      // Use emitToField for field-specific updates
-      this.emitToField(payload.fieldId, 'match_update', payload);
+    const scope = payload.scope || 'audience'; // Default to audience for backward compatibility
+
+    if (scope === 'referee') {
+      // For referee broadcasts, emit to the 'all' room so all referees can receive it
+      const clientsInAllRoom = this.server.sockets.adapter.rooms.get('all');
+      const allConnectedClients = Array.from(this.server.sockets.sockets.keys());
       
-      // Also emit to tournament for history/archiving
-      if (payload.tournamentId) {
-        this.server.to(payload.tournamentId).emit('match_update', payload);
+      this.logger.log(`📢 REFEREE BROADCAST - Total connected clients: ${allConnectedClients.length}`);
+      this.logger.log(`📢 REFEREE BROADCAST - Clients in "all" room: ${clientsInAllRoom?.size || 0}`);
+      this.logger.log(`📢 REFEREE BROADCAST - All room members: ${clientsInAllRoom ? Array.from(clientsInAllRoom).join(', ') : 'none'}`);
+      
+      this.server.to('all').emit('match_update', payload);
+      
+      this.logger.log(`📢 REFEREE BROADCAST - Emitted to "all" room with payload: ${JSON.stringify({
+        matchId: payload.id,
+        scope: payload.scope,
+        tournamentId: payload.tournamentId,
+        matchNumber: payload.matchNumber
+      })}`);
+    } else {
+      // For audience broadcasts, use field-specific rooms
+      if (payload.fieldId) {
+        // Use emitToField for field-specific updates
+        this.emitToField(payload.fieldId, 'match_update', payload);
+
+        // Also emit to tournament for history/archiving
+        if (payload.tournamentId) {
+          this.server.to(payload.tournamentId).emit('match_update', payload);
+        }
+      } else if (payload.tournamentId) {
+        // fallback for legacy clients
+        client.to(payload.tournamentId).emit('match_update', payload);
       }
-    } else if (payload.tournamentId) {
-      // fallback for legacy clients
-      client.to(payload.tournamentId).emit('match_update', payload);
     }
   }  // Handle score updates (control panel -> audience display)
-  @SubscribeMessage('score_update')
+    @SubscribeMessage('score_update')
   handleScoreUpdate(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: any
@@ -341,12 +372,18 @@ export class EventsGateway
         this.logger.log(`Emitting score update to tournament: ${payload.tournamentId}`);
         this.server.to(payload.tournamentId).emit('score_update', payload);
       }
+      
+      // Also emit to "all" room for referees who need to see all scores
+      this.server.to('all').emit('score_update', payload);
+      this.logger.log(`Broadcasted score update to "all" room for referees`);
     } else if (payload.tournamentId) {
       this.logger.log(`Emitting score update to tournament room: ${payload.tournamentId}`);
       client.to(payload.tournamentId).emit('score_update', payload);
+      // Also emit to "all" room
+      this.server.to('all').emit('score_update', payload);
     } else {
       this.logger.warn('Score update received without fieldId or tournamentId:', payload);
-      // Fallback: broadcast to all connected clients
+      // Fallback: broadcast to all connected clients including "all" room
       this.server.emit('score_update', payload);
     }
   }
@@ -378,10 +415,16 @@ export class EventsGateway
         this.server.to(payload.tournamentId).emit('scoreUpdateRealtime', eventData);
         this.logger.log(`Broadcasted scoreUpdateRealtime to tournament room: ${payload.tournamentId}`);
       }
+      
+      // Also emit to "all" room for referees who need to see all scores
+      this.server.to('all').emit('scoreUpdateRealtime', eventData);
+      this.logger.log(`Broadcasted scoreUpdateRealtime to "all" room for referees`);
     } else if (payload.tournamentId) {
       // Tournament-wide broadcast
       this.server.to(payload.tournamentId).emit('scoreUpdateRealtime', eventData);
       this.logger.log(`Broadcasted scoreUpdateRealtime to tournament room: ${payload.tournamentId}`);
+      // Also emit to "all" room
+      this.server.to('all').emit('scoreUpdateRealtime', eventData);
     } else {
       // Fallback: broadcast to all
       this.server.emit('scoreUpdateRealtime', eventData);
