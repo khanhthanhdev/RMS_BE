@@ -15,7 +15,7 @@ model User {
   role                      UserRole       @default(COMMON)
   name                      String
   dateOfBirth               DateTime?
-  email                     String         @unique
+  email                     String?        @unique
   phoneNumber               String?
   gender                    Gender?
   isActive                  Boolean        @default(true) // Account status

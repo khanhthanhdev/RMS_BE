@@ -8,7 +8,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { TeamStatsApiService } from '../match-scores/team-stats-api.service';
-import { MatchState } from '../utils/prisma-types';
+import { MatchSchedulerService } from '../match-scheduler/match-scheduler.service';
+import { MatchState, StageType } from '../utils/prisma-types';
 
 export interface RecentMatchUpdate {
   id: string;
@@ -38,7 +39,8 @@ export class MatchChangeDetectionService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly teamStatsService: TeamStatsApiService
+    private readonly teamStatsService: TeamStatsApiService,
+    private readonly matchSchedulerService: MatchSchedulerService
   ) {
     // Periodic cleanup of old change records
     setInterval(() => this.cleanupOldChanges(), 60 * 1000);
@@ -144,9 +146,14 @@ export class MatchChangeDetectionService {
         `in tournament ${match.stage.tournament.id}, stage ${match.stage.id}`
       );
 
-      // If match was completed, trigger ranking recalculation
+      // If match was completed, trigger ranking recalculation only for Swiss stages
       if (newStatus === MatchState.COMPLETED && previousStatus !== MatchState.COMPLETED) {
-        await this.triggerRankingRecalculation(changeEvent);
+        if (match.stage.type === StageType.SWISS) {
+          await this.triggerRankingRecalculation(changeEvent);
+        } else if (match.stage.type === StageType.PLAYOFF) {
+          // For playoff stages, only trigger bracket updates
+          await this.triggerPlayoffBracketUpdate(changeEvent);
+        }
       }
     } catch (error) {
       this.logger.error(`Error recording match change for ${matchId}:`, error);
@@ -154,13 +161,13 @@ export class MatchChangeDetectionService {
   }
 
   /**
-   * Trigger automatic ranking recalculation when a match is completed
+   * Trigger automatic ranking recalculation when a Swiss match is completed
    */
   private async triggerRankingRecalculation(changeEvent: MatchChangeEvent): Promise<void> {
     try {
       this.logger.log(
         `Triggering ranking recalculation for tournament ${changeEvent.tournamentId}, ` +
-        `stage ${changeEvent.stageId} due to match completion: ${changeEvent.matchId}`
+        `stage ${changeEvent.stageId} due to Swiss match completion: ${changeEvent.matchId}`
       );
 
       // Recalculate rankings for the affected tournament/stage
@@ -176,6 +183,39 @@ export class MatchChangeDetectionService {
     } catch (error) {
       this.logger.error(
         `Error during ranking recalculation for tournament ${changeEvent.tournamentId}:`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Trigger playoff bracket advancement when a playoff match is completed
+   */
+  private async triggerPlayoffBracketUpdate(changeEvent: MatchChangeEvent): Promise<void> {
+    try {
+      // Get stage information to check if it's a playoff stage
+      const stage = await this.prisma.stage.findUnique({
+        where: { id: changeEvent.stageId },
+        select: { type: true }
+      });
+
+      if (!stage || stage.type !== StageType.PLAYOFF) {
+        return; // Not a playoff stage, nothing to do
+      }
+
+      this.logger.log(
+        `Triggering playoff bracket update for match ${changeEvent.matchId} in stage ${changeEvent.stageId}`
+      );
+
+      // Update playoff brackets - this will advance winning teams to the next round
+      await this.matchSchedulerService.updatePlayoffBrackets(changeEvent.matchId);
+
+      this.logger.log(
+        `Playoff bracket update completed for match ${changeEvent.matchId}`
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error during playoff bracket update for match ${changeEvent.matchId}:`,
         error
       );
     }
@@ -245,6 +285,18 @@ export class MatchChangeDetectionService {
    */
   async forceRankingRecalculation(tournamentId: string, stageId?: string): Promise<void> {
     try {
+      // Check if stage is Swiss before recalculating rankings
+      if (stageId) {
+        const stage = await this.prisma.stage.findUnique({
+          where: { id: stageId },
+          select: { type: true }
+        });
+
+        if (!stage || stage.type !== StageType.SWISS) {
+          throw new Error(`Ranking recalculation is only available for Swiss stages, not ${stage?.type || 'unknown'} stages`);
+        }
+      }
+
       this.logger.log(
         `Force recalculating rankings for tournament ${tournamentId}` +
         (stageId ? `, stage ${stageId}` : '')

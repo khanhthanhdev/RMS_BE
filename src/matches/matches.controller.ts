@@ -24,10 +24,20 @@ export class MatchesController {
   }
 
   @Get()
-  findAll(@Query('fieldId') fieldId?: string, @Query('fieldNumber') fieldNumber?: string) {
+  findAll(
+    @Query('fieldId') fieldId?: string,
+    @Query('fieldNumber') fieldNumber?: string,
+    @Query('tournamentId') tournamentId?: string,
+    @Query('stageId') stageId?: string
+  ) {
     // Convert fieldNumber to number if present
     const numFieldNumber = fieldNumber !== undefined ? Number(fieldNumber) : undefined;
-    return this.matchesService.findAll({ fieldId, fieldNumber: numFieldNumber });
+    return this.matchesService.findAll({
+      fieldId,
+      fieldNumber: numFieldNumber,
+      tournamentId,
+      stageId
+    });
   }
 
   @Get(':id')

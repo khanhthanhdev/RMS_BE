@@ -182,11 +182,13 @@ export class AuthService {
       data: { lastVerificationEmailSent: now },
     });
 
-    // Send verification email
+    // Send verification email only if user has an email
+    if (user.email) {
     await this.emailsService.sendAccountActivationInvite(
       user.email,
-      `${process.env.FRONTEND_URL}/verify?token=${activationToken}`,
-    );
+        `${process.env.FRONTEND_URL}/verify?token=${activationToken}`,
+      );
+    }
   }
 
   async createDefaultAdmin() {

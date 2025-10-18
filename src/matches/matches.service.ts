@@ -82,25 +82,39 @@ export class MatchesService {
   }
 
   /**
-   * Find all matches, optionally filtered by fieldId or fieldNumber
-   */  findAll(params?: { fieldId?: string; fieldNumber?: number }) {
-    const { fieldId, fieldNumber } = params || {};
-    const where: any = {};
-    if (fieldId) where.fieldId = fieldId;
-    if (fieldNumber !== undefined) where.fieldNumber = fieldNumber;
-    return this.prisma.match.findMany({
-      where,
-      include: {
-        stage: {
+  * Find all matches, optionally filtered by fieldId, fieldNumber, tournamentId, or stageId
+  */
+  findAll(params?: {
+  fieldId?: string;
+  fieldNumber?: number;
+  tournamentId?: string;
+  stageId?: string;
+  }) {
+  const { fieldId, fieldNumber, tournamentId, stageId } = params || {};
+  const where: any = {};
+
+  if (fieldId) where.fieldId = fieldId;
+  if (fieldNumber !== undefined) where.fieldNumber = fieldNumber;
+  if (stageId) where.stageId = stageId;
+  if (tournamentId) {
+  where.stage = {
+  tournamentId: tournamentId
+  };
+  }
+
+  return this.prisma.match.findMany({
+  where,
+  include: {
+  stage: {
+    include: {
+    tournament: true,
+  },
+  },
+  alliances: {
+  include: {
+      teamAlliances: {
           include: {
-            tournament: true,
-          },
-        },
-        alliances: {
-          include: {
-            teamAlliances: {
-              include: {
-                team: true,
+              team: true,
               },
             },
             matchScores: true,

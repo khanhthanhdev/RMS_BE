@@ -3,10 +3,14 @@ import { TeamStatsApiService } from './team-stats-api.service';
 import { TeamStatsFilterDto } from './dto/team-stats-filter.dto';
 import { TeamStatsResponseDto } from './dto/team-stats-response.dto';
 import { LeaderboardResponseDto } from './dto/leaderboard-response.dto';
+import { PrismaService } from '../prisma.service';
 
 @Controller('team-stats')
 export class TeamStatsApiController {
-  constructor(private readonly teamStatsApiService: TeamStatsApiService) {}
+  constructor(
+    private readonly teamStatsApiService: TeamStatsApiService,
+    private readonly prisma: PrismaService
+  ) {}
 
   @Get(':teamId')
   async getTeamStats(
@@ -41,6 +45,19 @@ export class TeamStatsApiController {
     if (!tournamentId) {
       throw new BadRequestException('tournamentId is required');
     }
+
+    // Check if stage is Swiss before allowing ranking updates
+    if (stageId) {
+      const stage = await this.prisma.stage.findUnique({
+        where: { id: stageId },
+        select: { type: true }
+      });
+
+      if (!stage || stage.type !== 'SWISS') {
+        throw new BadRequestException(`Ranking updates are only available for Swiss stages, not ${stage?.type || 'unknown'} stages`);
+      }
+    }
+
     await this.teamStatsApiService.calculateAndWriteRankings(tournamentId, stageId);
     return { success: true };
   }

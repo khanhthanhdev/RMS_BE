@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { StageStatus, MatchState, Stage, Team } from '../utils/prisma-types';
+import { FRC_RANKING_ORDER } from '../constants/ranking.constants';
 
 /**
  * Interface defining the result of a stage advancement operation
@@ -184,12 +185,7 @@ export class StageAdvancementService {
       include: {
         team: true
       },
-      orderBy: [
-        { rankingPoints: 'desc' },
-        { opponentWinPercentage: 'desc' },
-        { pointDifferential: 'desc' },
-        { matchesPlayed: 'desc' }
-      ]
+      orderBy: FRC_RANKING_ORDER
     });
 
     // If no team stats found for this stage, try to get stats from tournament
@@ -201,19 +197,14 @@ export class StageAdvancementService {
       
       if (stage) {
         teamStats = await this.prisma.teamStats.findMany({
-          where: { 
+          where: {
             tournamentId: stage.tournamentId,
             stageId: null // Get stats that are not stage-specific
           },
           include: {
             team: true
           },
-          orderBy: [
-            { rankingPoints: 'desc' },
-            { opponentWinPercentage: 'desc' },
-            { pointDifferential: 'desc' },
-            { matchesPlayed: 'desc' }
-          ]
+          orderBy: FRC_RANKING_ORDER
         });
       }
     }
@@ -222,15 +213,8 @@ export class StageAdvancementService {
       throw new BadRequestException('No team statistics found for this stage or tournament');
     }
 
-    // Calculate OWP for each team using losses/total matches
-    const teamOWP = new Map<string, number>();
-    for (const stat of teamStats) {
-      const totalMatches = stat.wins + stat.losses + stat.ties;
-      const owp = totalMatches > 0 ? stat.losses / totalMatches : 0;
-      teamOWP.set(stat.teamId, owp);
-    }
-
     // Convert to ranking format and assign ranks
+    // Note: opponentWinPercentage is already properly calculated in TeamStats
     return teamStats.map((stat, index) => ({
       teamId: stat.teamId,
       teamNumber: stat.team.teamNumber,
@@ -243,7 +227,7 @@ export class StageAdvancementService {
       pointDifferential: stat.pointDifferential,
       rankingPoints: stat.rankingPoints,
       rank: index + 1,
-      opponentWinPercentage: teamOWP.get(stat.teamId) ?? 0,
+      opponentWinPercentage: stat.opponentWinPercentage,
       matchesPlayed: stat.matchesPlayed ?? (stat.wins + stat.losses + stat.ties)
     }));
   }

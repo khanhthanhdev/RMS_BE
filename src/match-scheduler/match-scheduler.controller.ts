@@ -3,7 +3,7 @@ import { MatchSchedulerService } from './match-scheduler.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
-import { UserRole } from '../utils/prisma-types';
+import { UserRole, AllianceColor } from '../utils/prisma-types';
 import { FrcSchedulerConfig, PRESET_CONFIGS } from './frc-scheduler.config';
 import { StagesService } from '../stages/stages.service';
 
@@ -185,18 +185,42 @@ export class MatchSchedulerController {
     }
 
     /**
-     * Finalizes rankings for the playoff stage.
-     * Determines final tournament placement based on bracket results.
-     */
+    * Finalizes rankings for the playoff stage.
+    * Determines final tournament placement based on bracket results.
+    */
     @Post('finalize-playoff-rankings/:stageId')
     @Roles(UserRole.ADMIN)
     async finalizePlayoffRankings(@Param('stageId') stageId: string) {
-        const finalMatches = await this.matchSchedulerService.finalizePlayoffRankings(stageId);
-        await this.stagesService.broadcastStageBracket(stageId);
-        
+    const finalMatches = await this.matchSchedulerService.finalizePlayoffRankings(stageId);
+    await this.stagesService.broadcastStageBracket(stageId);
+
+    return {
+    message: `Finalized rankings for ${finalMatches.length} playoff matches`,
+    matches: finalMatches
+    };
+    }
+
+    /**
+     * Manually assigns teams to a playoff match alliance.
+     * Allows admins to select teams for final rounds instead of automatic advancement.
+     */
+    @Post('assign-teams-to-playoff-match')
+    @Roles(UserRole.ADMIN)
+    async assignTeamsToPlayoffMatch(@Body() data: {
+    matchId: string;
+    allianceColor: AllianceColor;
+    teamIds: string[];
+    }) {
+    const updatedMatch = await this.matchSchedulerService.assignTeamsToPlayoffMatch(
+    data.matchId,
+    data.allianceColor,
+    data.teamIds
+    );
+        await this.stagesService.broadcastStageBracket(updatedMatch.stageId);
+
         return {
-            message: `Finalized rankings for ${finalMatches.length} playoff matches`,
-            matches: finalMatches
+            message: `Assigned ${data.teamIds.length} teams to ${data.allianceColor} alliance in playoff match ${data.matchId}`,
+            match: updatedMatch
         };
     }
 }

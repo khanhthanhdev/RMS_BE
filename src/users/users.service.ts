@@ -30,6 +30,7 @@ export class UsersService {
    */
   async create(createUserDto: CreateUserDto) {
     try {
+      console.log(`[UserService] Creating user: ${createUserDto.username} with role: ${createUserDto.role}`);
       await this.validateUserCreation(createUserDto);
 
       const hashedPassword = await this.hashPassword(createUserDto.password);
@@ -59,7 +60,7 @@ export class UsersService {
 
       const now = new Date();
       const activationToken = await this.jwtService.signAsync(
-        { email: createUserDto.email },
+        { email: createUserDto.email || createUserDto.username },
         { expiresIn: '10m' },
       );
       
@@ -69,10 +70,24 @@ export class UsersService {
         data: { lastVerificationEmailSent: now },
       });
       
-      await this.emailsService.sendAccountActivationInvite(
-        createUserDto.email,
-        `${process.env.FRONTEND_URL}/verify?token=${activationToken}`,
-      );
+      // Send verification email only if user has an email
+      if (createUserDto.email) {
+        await this.emailsService.sendAccountActivationInvite(
+          createUserDto.email,
+          `${process.env.FRONTEND_URL}/verify?token=${activationToken}`,
+        );
+
+        // Send account information email only for admin-created users (when createdById is present)
+        if (createUserDto.createdById) {
+          await this.emailsService.sendUserAccountInfoEmail(
+            createUserDto.email,
+            createUserDto.username,
+            createUserDto.password, // Send original password, not hashed
+            createUserDto.role || UserRole.COMMON,
+            `${process.env.FRONTEND_URL}/login`,
+          );
+        }
+      }
 
       return newUser;
     } catch (error) {
@@ -334,8 +349,52 @@ export class UsersService {
   }
 
   /**
-   * Bulk change user roles
-   */
+  * Send bulk user creation emails
+  */
+  async sendBulkUserCreationEmails(
+    emailData: Array<{
+      email: string;
+      username: string;
+      password: string;
+      role: UserRole;
+    }>,
+  ): Promise<{ sent: number; failed: number; results: Array<{ email: string; success: boolean; error?: string }> }> {
+    const results: Array<{ email: string; success: boolean; error?: string }> = [];
+    let sent = 0;
+    let failed = 0;
+
+    for (const data of emailData) {
+      try {
+        console.log(`[UserService] Sending bulk creation email to: ${data.email}`);
+
+        // Generate a login URL (could be a generic login page)
+        const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login`;
+
+        // Send the email using the backend bulk user creation email service
+        await this.emailsService.sendBulkUserCreationEmail(
+        data.email,
+        data.username,
+          data.password,
+          data.role,
+          loginUrl,
+        );
+
+        results.push({ email: data.email, success: true });
+        sent++;
+      } catch (error) {
+        console.error(`[UserService] Failed to send email to ${data.email}:`, error);
+        results.push({ email: data.email, success: false, error: error.message });
+        failed++;
+      }
+    }
+
+    console.log(`[UserService] Bulk email sending completed: ${sent} sent, ${failed} failed`);
+    return { sent, failed, results };
+  }
+
+  /**
+    * Bulk change user roles
+    */
   async bulkChangeRole(
     ids: string[],
     newRole: UserRole,
@@ -410,7 +469,7 @@ export class UsersService {
       throw new ConflictException('Username already exists');
     }
     // Ensure no further code executes after throwing
-    if (await this.isEmailExists(createUserDto.email)) {
+    if (createUserDto.email && await this.isEmailExists(createUserDto.email)) {
       throw new ConflictException('Email already exists');
     }
     // Ensure no further code executes after throwing
@@ -538,10 +597,18 @@ export class UsersService {
   }
 
   private async isUsernameExists(username: string): Promise<boolean> {
-    const count = await this.prisma.user.count({
-      where: { username },
-    });
-    return count > 0;
+    try {
+      console.log(`[UserService] Checking if username exists: ${username}`);
+      const count = await this.prisma.user.count({
+        where: { username },
+      });
+      console.log(`[UserService] Username ${username} exists check: ${count > 0}`);
+      return count > 0;
+    } catch (error) {
+      console.error(`[UserService] Error checking username existence for ${username}:`, error);
+      // Re-throw the error to maintain existing behavior
+      throw error;
+    }
   }
 
   private async isEmailExists(email: string): Promise<boolean> {
@@ -608,6 +675,12 @@ export class UsersService {
       error instanceof BadRequestException
     ) {
       throw error;
+    }
+
+    // Handle database connection errors
+    if (error.code === 'P1001' || error.code === 'P1017' || error.message?.includes('ECONNRESET') || error.message?.includes('ETIMEDOUT')) {
+      console.error('Database connection error:', error);
+      throw new BadRequestException('Database connection error. Please check your connection and try again.');
     }
 
     // Log unexpected errors

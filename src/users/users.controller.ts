@@ -21,9 +21,10 @@ import {
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import {
-  UpdateUserDto,
-  ChangeRoleDto,
-  BulkOperationDto,
+UpdateUserDto,
+ChangeRoleDto,
+BulkOperationDto,
+  BulkEmailDto,
 } from './dto/update-user.dto';
 import {
   UserQueryDto,
@@ -205,10 +206,28 @@ export class UsersController {
     }
     const currentUserId = this.getCurrentUserId(req);
     return await this.usersService.bulkChangeRole(
-      bulkOperationDto.userIds,
-      bulkOperationDto.role,
-      currentUserId,
+    bulkOperationDto.userIds,
+    bulkOperationDto.role,
+    currentUserId,
     );
+    }
+
+    /**
+    * Send bulk user creation emails - Admin only
+    */
+  @Post('bulk-email')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async sendBulkUserCreationEmails(
+    @Body() bulkEmailDto: BulkEmailDto,
+  ) {
+    console.log(
+      '[Controller] Received bulk email request:',
+      JSON.stringify(bulkEmailDto, null, 2),
+    );
+
+    return await this.usersService.sendBulkUserCreationEmails(bulkEmailDto.emails);
   }
 
   /**

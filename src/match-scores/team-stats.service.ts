@@ -107,8 +107,13 @@ export class TeamStatsService implements ITeamStatsService {
       }
       
       // Tiebreakers (can be customized based on game rules)
-      const tiebreaker1 = pointsScored; // Total points as first tiebreaker
-      const tiebreaker2 = pointDifferential; // Point differential as second tiebreaker
+      // FRC Standard Ranking Tiebreakers:
+      // 1. Ranking Points (wins * 2 + ties) - already set above
+      // 2. Opponent Win Percentage (OWP) - already calculated above
+      // 3. Point Differential - already set above
+      // 4. Points Scored - used as final tiebreaker
+      const tiebreaker1 = opponentWinPercentage; // OWP as tiebreaker #1
+      const tiebreaker2 = pointsScored; // Points scored as final tiebreaker
       
       // Debug logging
       console.log(`🔍 TeamStatsService calculating stats for team ${teamId}:`, {

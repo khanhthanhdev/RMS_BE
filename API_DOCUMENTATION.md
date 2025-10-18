@@ -517,26 +517,48 @@ Authorization: Bearer <jwt-token>
 
 ### Match Scheduler Module (`/api/match-scheduler`)
 
-#### Generate Schedule
+#### Generate FRC Schedule
 ```http
-POST /api/match-scheduler/generate
+POST /api/match-scheduler/generate-frc-schedule
 Authorization: Bearer <jwt-token>
 Content-Type: application/json
 
 {
   "stageId": "stage-uuid",
-  "strategy": "FRC",
-  "config": {
-    "matchesPerTeam": 6,
-    "breakDuration": 15,
-    "matchDuration": 150
-  }
+  "rounds": 6,
+  "teamsPerAlliance": 1
 }
 ```
 
-#### Get Schedule
+#### Generate Playoff Schedule
 ```http
-GET /api/match-scheduler/schedule/:stageId
+POST /api/match-scheduler/generate-playoff
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
+
+{
+  "stageId": "stage-uuid",
+  "numberOfRounds": 2,
+  "teamsPerAlliance": 1
+}
+```
+
+#### Manually Assign Teams to Playoff Match
+```http
+POST /api/match-scheduler/assign-teams-to-playoff-match
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
+
+{
+  "matchId": "match-uuid",
+  "allianceColor": "RED",
+  "teamIds": ["team-uuid-1", "team-uuid-2"]
+}
+```
+
+#### Update Playoff Brackets
+```http
+POST /api/match-scheduler/update-playoff-brackets/:matchId
 Authorization: Bearer <jwt-token>
 ```
 

@@ -46,7 +46,7 @@ export const CreateUserSchema = z
       .string()
       .min(1, 'Name is required')
       .max(100, 'Name must not exceed 100 characters'),
-    email: emailValidation,
+    email: emailValidation.optional(),
     username: usernameValidation,
     password: passwordValidation,
     role: z

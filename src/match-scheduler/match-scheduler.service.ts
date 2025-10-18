@@ -194,6 +194,75 @@ export class MatchSchedulerService {
   }
 
   /**
+   * Manually assign teams to a playoff match alliance.
+   * Allows admins to override automatic team advancement for final rounds.
+   */
+  async assignTeamsToPlayoffMatch(
+    matchId: string,
+    allianceColor: AllianceColor,
+    teamIds: string[]
+  ): Promise<PrismaMatch> {
+    // Get the match with its alliances
+    const match = await this.prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        alliances: {
+          include: {
+            teamAlliances: true
+          }
+        },
+        stage: true
+      }
+    });
+
+    if (!match) {
+      throw new Error(`Match with ID ${matchId} not found`);
+    }
+
+    if (match.stage.type !== StageType.PLAYOFF) {
+      throw new Error(`Match ${matchId} is not in a playoff stage`);
+    }
+
+    // Find the target alliance
+    const targetAlliance = match.alliances.find(alliance => alliance.color === allianceColor);
+    if (!targetAlliance) {
+      throw new Error(`Alliance with color ${allianceColor} not found in match ${matchId}`);
+    }
+
+    // Remove existing team alliances for this alliance
+    await this.prisma.teamAlliance.deleteMany({
+      where: { allianceId: targetAlliance.id }
+    });
+
+    // Add the new team alliances
+    for (let i = 0; i < teamIds.length; i++) {
+      await this.prisma.teamAlliance.create({
+        data: {
+          allianceId: targetAlliance.id,
+          teamId: teamIds[i],
+          stationPosition: i + 1
+        }
+      });
+    }
+
+    // Return the updated match
+    return this.prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        alliances: {
+          include: {
+            teamAlliances: {
+              include: {
+                team: true
+              }
+            }
+          }
+        }
+      }
+    }) as Promise<PrismaMatch>;
+  }
+
+  /**
    * Gets stage with all necessary details for scheduling
    * @param stageId Stage ID
    * @returns Stage with tournament, teams, and fields

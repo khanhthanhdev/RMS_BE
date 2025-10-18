@@ -140,6 +140,18 @@ export const ProfileUpdateSchema = z
 export class UpdateUserDto extends createZodDto(UpdateUserSchema) {}
 export class ChangeRoleDto extends createZodDto(ChangeRoleSchema) {}
 export class BulkOperationDto extends createZodDto(BulkOperationSchema) {}
+
+// Bulk email operation DTO
+const BulkEmailSchema = z.object({
+  emails: z.array(z.object({
+    email: z.string().email('Invalid email format'),
+    username: z.string().min(1, 'Username is required'),
+    password: z.string().min(1, 'Password is required'),
+    role: z.nativeEnum(UserRole, { errorMap: () => ({ message: 'Invalid user role' }) }),
+  })).min(1, 'At least one email is required'),
+});
+
+export class BulkEmailDto extends createZodDto(BulkEmailSchema) {}
 export class PasswordResetDto extends createZodDto(PasswordResetSchema) {}
 export class UserStatusDto extends createZodDto(UserStatusSchema) {}
 export class ProfileUpdateDto extends createZodDto(ProfileUpdateSchema) {}

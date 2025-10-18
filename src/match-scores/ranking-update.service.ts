@@ -86,6 +86,19 @@ export class RankingUpdateService {
         throw new Error('Tournament ID is required for ranking update');
       }
 
+      // Check if stage is Swiss before allowing ranking updates
+      if (stageId) {
+        const stage = await this.prisma.stage.findUnique({
+          where: { id: stageId },
+          select: { type: true }
+        });
+
+        if (!stage || stage.type !== 'SWISS') {
+          this.logger.warn(`Skipping ranking update for non-Swiss stage ${stage?.type || 'unknown'}`, context);
+          return; // Silently skip for non-Swiss stages
+        }
+      }
+
       // Emit recalculation started event
       this.emitRecalculationEvent('ranking_recalculation_started', tournamentId, stageId);
 

@@ -1,12 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { Match as PrismaMatch, StageType, AllianceColor, MatchState } from '../utils/prisma-types';
+import { FRC_RANKING_ORDER } from '../constants/ranking.constants';
 /**
  * Playoff bracket generation and advancement logic.
  * Extracted from MatchSchedulerService for separation of concerns.
  */
 @Injectable()
 export class PlayoffScheduler {
+  private readonly logger = new Logger(PlayoffScheduler.name);
+
   constructor(private readonly prisma: PrismaService) { }
 
   async generatePlayoffSchedule(stage: any, numberOfRounds: number): Promise<PrismaMatch[]> {
@@ -19,11 +22,7 @@ export class PlayoffScheduler {
     const teamStats = await this.prisma.teamStats.findMany({
       where: { tournamentId: stage.tournament.id },
       include: { team: true },
-      orderBy: [
-        { wins: 'desc' },
-        { tiebreaker1: 'desc' },
-        { tiebreaker2: 'desc' }
-      ]
+      orderBy: FRC_RANKING_ORDER
     });
 
     if (teamStats.length < numTeamsNeeded) {
@@ -201,7 +200,8 @@ export class PlayoffScheduler {
           include: {
             alliances: { include: { teamAlliances: true } }
           }
-        }
+        },
+        stage: true
       }
     });
     if (!match) throw new Error(`Match with ID ${matchId} not found`);
